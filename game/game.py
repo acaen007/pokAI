@@ -1,4 +1,6 @@
 from game.deck import Deck
+from ai.agent import PokerAI
+import numpy as np
 
 
 class PokerGame:
@@ -27,11 +29,36 @@ class PokerGame:
             self.community_cards.append(self.deck.deal())
 
     def betting_round(self):
-        # Simplified betting logic for demonstration
+        # Implement betting logic
         for player in self.players:
-            bet_amount = 10  # Placeholder for actual betting logic
-            self.pot += player.bet(bet_amount)
-            print(f"{player.name} bets {bet_amount}")
+            if isinstance(player, PokerAI):
+                game_state = self.get_game_state(player)
+                action = player.decide_action(game_state)
+                # Map action index to actual action
+                if action == 0:
+                    print(f"{player.name} folds.")
+                    # Handle fold
+                elif action == 1:
+                    amount = 10  # Placeholder for call amount
+                    self.pot += player.bet(amount)
+                    print(f"{player.name} calls {amount}.")
+                elif action == 2:
+                    amount = 20  # Placeholder for raise amount
+                    self.pot += player.bet(amount)
+                    print(f"{player.name} raises to {amount}.")
+            else:
+                # Human player logic or simplified AI
+                amount = 10  # Placeholder
+                self.pot += player.bet(amount)
+                print(f"{player.name} bets {amount}.")
+    
+    def get_game_state(self, player):
+        # Create a representation of the game state for the AI
+        # For simplicity, we'll use a NumPy array of zeros
+        game_state = np.zeros(114)  # Placeholder size
+        # Populate game_state with relevant information
+        # Example: Encode own cards, community cards, pot size, etc.
+        return game_state
 
     def play_round(self):
         self.reset()

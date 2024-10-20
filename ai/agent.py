@@ -24,14 +24,8 @@ class PokerAI(Player):
         return 52 + 52 + 10  # Placeholder sizes
 
     def decide_action(self, game_state):
-        # Convert game_state to tensor
-        state_tensor = torch.tensor(game_state, dtype=torch.float32)
-        # Forward pass through the model
-        with torch.no_grad():
-            action_probs = self.model(state_tensor)
-        # Decide action based on output
-        action = torch.argmax(action_probs).item()
-        return action  # Return action index
+        # For now, let's make the AI call every time
+        return 1  # Index for 'call'
 
     def bet(self, amount):
         # Override bet function if necessary

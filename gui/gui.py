@@ -95,6 +95,43 @@ class PokerGUI:
     def draw_hand(self, cards, x, y):
         for idx, card in enumerate(cards):
             self.draw_card(card, x + idx * 100, y)  # 75 pixels apart
+        
+    def draw_community_cards(self):
+        # Positions for the community cards
+        start_x = SCREEN_WIDTH // 2 - 270
+        y = SCREEN_HEIGHT // 2 - 30
+        card_spacing = 100  # Adjust spacing based on card size
+
+        # Total number of community cards
+        total_community_cards = 5
+
+        # Determine the number of cards to reveal based on the game stage
+        if self.game.stage == 'pre_flop':
+            revealed_cards = 0
+        elif self.game.stage == 'flop':
+            revealed_cards = 3
+        elif self.game.stage == 'turn':
+            revealed_cards = 4
+        elif self.game.stage == 'river' or self.game.stage == 'showdown':
+            revealed_cards = 5
+        else:
+            revealed_cards = 0
+
+        # Draw the community cards
+        for i in range(total_community_cards):
+            x = start_x + i * card_spacing
+            if i < revealed_cards and i < len(self.game.community_cards):
+                # Draw the revealed card
+                self.draw_card(self.game.community_cards[i], x, y)
+            else:
+                # Draw the back of the card
+                back_image = CARD_IMAGES.get('back')
+                back_image = pygame.transform.scale(back_image, (80, 100))  # Ensure consistent size
+                if back_image:
+                    SCREEN.blit(back_image, (x, y))
+                else:
+                    pygame.draw.rect(SCREEN, (255, 0, 0), (x, y, 50, 70))
+
 
     def bet_action(self):
         # Implement betting logic
@@ -206,7 +243,9 @@ class PokerGUI:
             # Showdown logic
             self.show_ai_hand = True
             self.game.end_round()
-            self.game.start_new_round()
+            self.human_action_made = False
+            self.game.stage = 'complete'
+
         elif self.game.stage == 'complete':
             # Check if any player has zero chips
             if self.game.players[0].stack <= 0 or self.game.players[1].stack <= 0:
@@ -239,7 +278,7 @@ class PokerGUI:
 
         # Draw community cards
         self.draw_text("Community Cards:", SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 - 50)
-        self.draw_hand(self.game.community_cards, SCREEN_WIDTH // 2 - 270, SCREEN_HEIGHT // 2 - 30)
+        self.draw_community_cards()
 
         # Draw pot size
         self.draw_text(f"Pot: {self.game.pot}", SCREEN_WIDTH // 2 - 50, SCREEN_HEIGHT // 2 + 100)

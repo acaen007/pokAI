@@ -196,13 +196,6 @@ class PokerGame:
         return self.players[0] if self.players[1] == player else self.players[1]
 
     def end_round(self, winner=None):
-        # # If the game ends before the river, deal remaining community cards
-        # if len(self.community_cards) < 5:
-        #     remaining_cards = 5 - len(self.community_cards)
-        #     self.deal_community_cards(remaining_cards)
-        #     print(f"Dealing remaining {remaining_cards} community cards.")
-        #     print("Community Cards:", self.format_cards(self.community_cards))
-
         if winner:
             # Distribute pot to the winner
             winner.stack += self.pot
@@ -238,6 +231,10 @@ class PokerGame:
         # Do not reset the deck here
         # Prepare for the next round by resetting attributes but keep the deck until the round actually starts
         self.reset_between_rounds()
+        
+        # Set stage to 'complete' to indicate that the round is over
+        self.stage = 'complete'
+
 
     def format_cards(self, cards):
         return ', '.join([f"{card.rank} of {card.suit}" for card in cards])

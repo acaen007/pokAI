@@ -24,6 +24,22 @@ def train_ai(num_iterations, batch_size):
         game_over = False
 
         while not game_over:
+            # Check if round is over before proceeding
+            if game.stage == 'complete':
+                game_over = True
+                break  # Exit the loop if the round is over
+
+            # Check if betting round should end
+            if game.should_move_to_next_stage():
+                if game.stage != 'showdown':
+                    game.next_stage()
+                    game.reset_actions_in_round()  # Reset after moving to the next stage
+                    continue  # Start the next iteration to check game status
+                else:
+                    game.end_round()
+                    game_over = True
+                    break  # Exit the loop if the round is over
+
             current_player = game.players[game.current_player_index]
             game_state = game.get_game_state(current_player)
             action, amount, action_index = current_player.decide_action(game_state)
@@ -38,21 +54,6 @@ def train_ai(num_iterations, batch_size):
             # Update the action count
             if current_player.stack > 0:
                 game.actions_in_round += 1
-
-            # Check if betting round should end
-            if game.stage != 'complete':
-                if game.should_move_to_next_stage():
-                    if game.stage != 'showdown':
-                        game.next_stage()
-                    else:
-                        game.end_round()
-                        game_over = True
-                        break  # Exit the loop if the round is over
-                    game.reset_actions_in_round()  # Reset after moving to the next stage
-
-            # Check if round is over
-            if game.stage == 'complete':
-                game_over = True
 
         # After the game ends, train the AI agents
         loss1 = ai_player1.replay(batch_size)

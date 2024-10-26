@@ -1,5 +1,6 @@
+# hand_evaluator.py
 from collections import Counter
-from game.card import Card
+from itertools import combinations
 
 def evaluate_hand(hand_cards, community_cards):
     """
@@ -20,7 +21,6 @@ def evaluate_hand(hand_cards, community_cards):
     return best_rank, best_high_cards
 
 def get_all_five_card_combinations(cards):
-    from itertools import combinations
     return list(combinations(cards, 5))
 
 def classify_hand(cards):
@@ -92,3 +92,18 @@ def get_kickers(rank_counts, exclude, count):
     kickers = [rank_to_value(rank) for rank in rank_counts.keys() if rank not in exclude]
     kickers_sorted = sorted(kickers, reverse=True)
     return kickers_sorted[:count]
+
+def get_hand_rank_name(rank):
+    rank_names = {
+        8: 'Straight Flush',
+        7: 'Four of a Kind',
+        6: 'Full House',
+        5: 'Flush',
+        4: 'Straight',
+        3: 'Three of a Kind',
+        2: 'Two Pair',
+        1: 'One Pair',
+        0: 'High Card',
+    }
+    return rank_names.get(rank, 'Unknown Hand')
+

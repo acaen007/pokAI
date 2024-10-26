@@ -76,4 +76,4 @@ def train_ai(num_iterations, batch_size):
     print(f"Total Iterations: {total_iterations}, Overall Average Loss: {overall_avg_loss}")
 
 if __name__ == "__main__":
-    train_ai(num_iterations=10, batch_size=32)
+    train_ai(num_iterations=10000, batch_size=32)

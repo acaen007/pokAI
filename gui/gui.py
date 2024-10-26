@@ -64,7 +64,10 @@ class PokerGUI:
         self.active_input = False
         self.input_rect = pygame.Rect(SCREEN_WIDTH - 250, SCREEN_HEIGHT - 50, 80, 30)
         self.button_rects = {}  # To store button rectangles for event handling
-
+        self.winner = None
+        self.winning_hand = []
+        self.hand_rank = ''
+    
     def draw_text(self, text, x, y, color=(255, 255, 255)):
         img = self.font.render(text, True, color)
         SCREEN.blit(img, (x, y))
@@ -83,19 +86,29 @@ class PokerGUI:
 
         return button_rect
 
-    def draw_card(self, card, x, y):
+    def draw_card(self, card, x, y, highlight=False):
         card_name = f"{card.suit}_{card.rank}"
         image = CARD_IMAGES.get(card_name)
         if image:
+            if highlight:
+                # Draw a yellow rectangle behind the card to highlight it
+                highlight_rect = pygame.Rect(x - 5, y - 5, image.get_width() + 10, image.get_height() + 10)
+                pygame.draw.rect(SCREEN, (255, 255, 0), highlight_rect)
             SCREEN.blit(image, (x, y))
         else:
             # Draw a placeholder rectangle if image not found
             pygame.draw.rect(SCREEN, (255, 0, 0), (x, y, 71, 96))  # Standard card size
 
-    def draw_hand(self, cards, x, y):
+    def draw_hand(self, cards, x, y, highlight_cards=None):
         for idx, card in enumerate(cards):
-            self.draw_card(card, x + idx * 100, y)  # 75 pixels apart
-        
+            is_highlighted = False
+            if highlight_cards:
+                for highlight_card in highlight_cards:
+                    if card.rank == highlight_card.rank and card.suit == highlight_card.suit:
+                        is_highlighted = True
+                        break
+            self.draw_card(card, x + idx * 100, y, highlight=is_highlighted)
+            
     def draw_community_cards(self):
         # Positions for the community cards
         start_x = SCREEN_WIDTH // 2 - 270
@@ -112,7 +125,7 @@ class PokerGUI:
             revealed_cards = 3
         elif self.game.stage == 'turn':
             revealed_cards = 4
-        elif self.game.stage == 'river' or self.game.stage == 'showdown':
+        elif self.game.stage in ['river', 'showdown', 'complete']:
             revealed_cards = 5
         else:
             revealed_cards = 0
@@ -122,7 +135,14 @@ class PokerGUI:
             x = start_x + i * card_spacing
             if i < revealed_cards and i < len(self.game.community_cards):
                 # Draw the revealed card
-                self.draw_card(self.game.community_cards[i], x, y)
+                card = self.game.community_cards[i]
+                is_highlighted = False
+                if self.winning_hand:
+                    for highlight_card in self.winning_hand:
+                        if card.rank == highlight_card.rank and card.suit == highlight_card.suit:
+                            is_highlighted = True
+                            break
+                self.draw_card(card, x, y, highlight=is_highlighted)
             else:
                 # Draw the back of the card
                 back_image = CARD_IMAGES.get('back')
@@ -131,7 +151,6 @@ class PokerGUI:
                     SCREEN.blit(back_image, (x, y))
                 else:
                     pygame.draw.rect(SCREEN, (255, 0, 0), (x, y, 50, 70))
-
 
     def bet_action(self):
         # Implement betting logic
@@ -142,7 +161,7 @@ class PokerGUI:
 
     def call_action(self):
         # Implement call logic
-        amount = 10  # Placeholder amount
+        amount = self.game.current_bet - self.game.players[0].current_bet
         self.game.players[0].bet(amount)
         self.game.pot += amount
         print(f"Human calls {amount}.")
@@ -150,7 +169,8 @@ class PokerGUI:
     def fold_action(self):
         # Implement fold logic
         print("Human folds.")
-        # Handle fold in game logic
+        self.game.handle_action(self.game.players[0], 'fold')
+        self.human_action_made = True
 
     def main_loop(self):
         # Start a new round
@@ -211,8 +231,18 @@ class PokerGUI:
                             print("Raise amount must be greater than 0.")
                     except ValueError:
                         print("Invalid raise amount.")
+                elif button_name == 'Next Hand':
+                    # Reset game state for the next hand
+                    self.game.start_new_round()
+                    self.human_action_made = False
+                    self.show_ai_hand = False
+                    self.game.stage = 'pre_flop'
+                    self.winner = None
+                    self.winning_hand = []
+                    self.hand_rank = ''
+                    # Clear the button_rects dictionary
+                    self.button_rects = {}
                 break  # Stop checking after the first matching button
-
 
     def human_action(self, action, amount=0):
         if not self.human_action_made:
@@ -222,7 +252,6 @@ class PokerGUI:
     def players_matched_bets(self):
         bets = [player.current_bet for player in self.game.players]
         return bets[0] == bets[1]
-
 
     def update_game_state(self):
         if self.game.stage in ['pre_flop', 'flop', 'turn', 'river']:
@@ -242,35 +271,30 @@ class PokerGUI:
         elif self.game.stage == 'showdown':
             # Showdown logic
             self.show_ai_hand = True
-            self.game.end_round()
+            self.winner, self.winning_hand, self.hand_rank = self.game.end_round()
             self.human_action_made = False
             self.game.stage = 'complete'
-
         elif self.game.stage == 'complete':
-            # Check if any player has zero chips
-            if self.game.players[0].stack <= 0 or self.game.players[1].stack <= 0:
-                self.running = False  # End the game
-                print("Game Over")
-            else:
-                # Start a new round
-                self.game.start_new_round()
-                self.human_action_made = False
-                self.show_ai_hand = False
-
-
+            # Waiting for 'Next Hand' button press
+            pass
 
     def draw_game_elements(self):
+        # Clear existing buttons
+        self.button_rects = {}
+
         # Draw human player's hand
         self.draw_text("Your Hand:", 50, SCREEN_HEIGHT - 150)
-        self.draw_hand(self.game.players[0].hand.cards, 50, SCREEN_HEIGHT - 130)
+        human_highlights = [card for card in self.game.players[0].hand.cards if card in self.winning_hand]
+        self.draw_hand(self.game.players[0].hand.cards, 50, SCREEN_HEIGHT - 130, highlight_cards=human_highlights)
 
         # Draw AI player's hand
         self.draw_text("AI's Hand:", 50, 50)
         if self.show_ai_hand:
-            self.draw_hand(self.game.players[1].hand.cards, 50, 70)
+            ai_highlights = [card for card in self.game.players[1].hand.cards if card in self.winning_hand]
+            self.draw_hand(self.game.players[1].hand.cards, 50, 70, highlight_cards=ai_highlights)
         else:
             # Draw face-down cards
-            back_image = pygame.image.load(os.path.join('assets', 'cards', 'back.png'))
+            back_image = CARD_IMAGES.get('back')
             back_image = pygame.transform.scale(back_image, (80, 100))  # Ensure consistent size
 
             for idx in range(2):
@@ -288,32 +312,43 @@ class PokerGUI:
             y_pos = SCREEN_HEIGHT - 200 if idx == 0 else 20
             self.draw_text(f"{player.name} Stack: {player.stack}", 50, y_pos)
 
-         # Draw the input box
-        pygame.draw.rect(SCREEN, (255, 255, 255), self.input_rect)
-        # Draw the input text
-        text_surface = self.font.render(self.input_text, True, (0, 0, 0))
-        SCREEN.blit(text_surface, (self.input_rect.x + 5, self.input_rect.y + 5))
-        
-        # Draw a label for the input box
-        self.draw_text("Raise Amount:", self.input_rect.x-40, self.input_rect.y - 75)
+        if self.game.stage == 'complete':
+            # Display winner and hand rank
+            if self.winner:
+                winner_name = self.winner.name
+                self.draw_text(f"{winner_name} wins with {self.hand_rank}", SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 150)
+            else:
+                self.draw_text("It's a tie!", SCREEN_WIDTH // 2 - 50, SCREEN_HEIGHT // 2 + 150)
 
-        # Draw buttons
-        bet_button_rect = self.draw_button("Bet", SCREEN_WIDTH - 150, SCREEN_HEIGHT - 150, 100, 40)
-        call_button_rect = self.draw_button("Call", SCREEN_WIDTH - 150, SCREEN_HEIGHT - 100, 100, 40)
-        fold_button_rect = self.draw_button("Fold", SCREEN_WIDTH - 150, SCREEN_HEIGHT - 50, 100, 40)
-        raise_button_rect = self.draw_button("Raise", SCREEN_WIDTH - 250, SCREEN_HEIGHT - 100, 80, 40)
+            # Draw the "Next Hand" button
+            next_hand_button_rect = self.draw_button("Next Hand", SCREEN_WIDTH // 2 - 50, SCREEN_HEIGHT // 2 + 200, 100, 40)
+            self.button_rects['Next Hand'] = next_hand_button_rect
+        else:
+            # Draw the input box
+            pygame.draw.rect(SCREEN, (255, 255, 255), self.input_rect)
+            # Draw the input text
+            text_surface = self.font.render(self.input_text, True, (0, 0, 0))
+            SCREEN.blit(text_surface, (self.input_rect.x + 5, self.input_rect.y + 5))
+            
+            # Draw a label for the input box
+            self.draw_text("Raise Amount:", self.input_rect.x-40, self.input_rect.y - 75)
 
-        # Store button rectangles for event handling
-        self.button_rects = {
-            'Bet': bet_button_rect,
-            'Call': call_button_rect,
-            'Fold': fold_button_rect,
-            'Raise': raise_button_rect
-        }
+            # Draw action buttons
+            bet_button_rect = self.draw_button("Bet", SCREEN_WIDTH - 150, SCREEN_HEIGHT - 150, 100, 40)
+            call_button_rect = self.draw_button("Call", SCREEN_WIDTH - 150, SCREEN_HEIGHT - 100, 100, 40)
+            fold_button_rect = self.draw_button("Fold", SCREEN_WIDTH - 150, SCREEN_HEIGHT - 50, 100, 40)
+            raise_button_rect = self.draw_button("Raise", SCREEN_WIDTH - 250, SCREEN_HEIGHT - 100, 80, 40)
+
+            # Store button rectangles for event handling
+            self.button_rects = {
+                'Bet': bet_button_rect,
+                'Call': call_button_rect,
+                'Fold': fold_button_rect,
+                'Raise': raise_button_rect
+            }
 
         if not self.running:
             self.draw_text("Game Over", SCREEN_WIDTH // 2 - 50, SCREEN_HEIGHT // 2, color=(255, 0, 0))
-
 
     # Helper methods
     def is_button_clicked(self, button_name, x, y):
@@ -335,5 +370,4 @@ class PokerGUI:
 
 if __name__ == "__main__":
     gui = PokerGUI()
-    # gui.game.play_round()  # Start a game round
     gui.main_loop()

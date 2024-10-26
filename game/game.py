@@ -3,7 +3,14 @@
 from game.deck import Deck
 from game.hand import Hand
 from game.player import Player
-from game.hand_evaluator import evaluate_hand
+from ai.agent import PokerAI
+import numpy as np
+from game.hand_evaluator import (
+    evaluate_hand,
+    get_hand_rank_name,
+    classify_hand,
+    get_all_five_card_combinations
+)
 
 class PokerGame:
     def __init__(self, player1, player2):
@@ -20,6 +27,8 @@ class PokerGame:
         self.player_all_in = None  # Track if a player is all-in
         self.players_who_acted = set()  # Initialize players_who_acted
         self.actions_in_round = 0  # Initialize action count for betting rounds
+        self.winner_declared = False  # To track if winner is declared early (e.g., on fold)
+        self.winner = None  # To store the winner when declared early
 
     def start_new_round(self):
         print("\nStarting a new round.")
@@ -78,6 +87,8 @@ class PokerGame:
         self.player_all_in = None
         self.players_who_acted = set()
         self.actions_in_round = 0
+        self.winner_declared = False
+        self.winner = None
 
     def reset_actions_in_round(self):
         self.actions_in_round = 0
@@ -148,20 +159,27 @@ class PokerGame:
         if action == 'fold':
             print(f"{player.name} folds.")
             winner = self.get_other_player(player)
-            self.end_round(winner=winner)
+            self.winner_declared = True  # Indicate that the winner has been declared
+            self.winner = winner  # Store the winner
+            self.stage = 'showdown'  # Move directly to showdown
+            self.end_round()
             return  # Round ends when a player folds
         elif action == 'check':
             print(f"{player.name} checks.")
         elif action == 'call':
             call_amount = self.bets_to_match - player.current_bet
             bet_amount = min(call_amount, player.stack)
-            actual_bet = player.bet(bet_amount)
-            self.pot += actual_bet
-            player.current_bet += actual_bet
-            print(f"{player.name} calls {actual_bet}.")
-            if player.stack == 0:
-                self.player_all_in = player
-                print(f"{player.name} is all-in.")
+            if bet_amount <= 0:
+                # Nothing to call, treat as a check
+                print(f"{player.name} checks.")
+            else:
+                actual_bet = player.bet(bet_amount)
+                self.pot += actual_bet
+                player.current_bet += actual_bet
+                print(f"{player.name} calls {actual_bet}.")
+                if player.stack == 0:
+                    self.player_all_in = player
+                    print(f"{player.name} is all-in.")
         elif action in ['bet', 'raise']:
             total_bet = amount
             bet_amount = total_bet - player.current_bet
@@ -195,31 +213,53 @@ class PokerGame:
     def get_other_player(self, player):
         return self.players[0] if self.players[1] == player else self.players[1]
 
-    def end_round(self, winner=None):
+    def end_round(self):
+        if self.winner_declared:
+            # Winner was declared due to fold
+            winner = self.winner
+            winning_hand = []
+            hand_rank = 'Opponent Folded'
+        else:
+            # Evaluate both players' hands
+            player1_rank, player1_high_cards = evaluate_hand(self.players[0].hand.cards, self.community_cards)
+            player2_rank, player2_high_cards = evaluate_hand(self.players[1].hand.cards, self.community_cards)
+
+            # Compare hands to determine the winner
+            if player1_rank > player2_rank:
+                winner = self.players[0]
+                winning_hand = self.get_best_five_card_hand(self.players[0].hand.cards, self.community_cards)
+                hand_rank = get_hand_rank_name(player1_rank)
+            elif player2_rank > player1_rank:
+                winner = self.players[1]
+                winning_hand = self.get_best_five_card_hand(self.players[1].hand.cards, self.community_cards)
+                hand_rank = get_hand_rank_name(player2_rank)
+            else:
+                # If ranks are equal, compare high cards
+                if player1_high_cards > player2_high_cards:
+                    winner = self.players[0]
+                    winning_hand = self.get_best_five_card_hand(self.players[0].hand.cards, self.community_cards)
+                    hand_rank = get_hand_rank_name(player1_rank)
+                elif player2_high_cards > player1_high_cards:
+                    winner = self.players[1]
+                    winning_hand = self.get_best_five_card_hand(self.players[1].hand.cards, self.community_cards)
+                    hand_rank = get_hand_rank_name(player2_rank)
+                else:
+                    winner = None  # Tie
+                    winning_hand = self.get_best_five_card_hand(self.players[0].hand.cards, self.community_cards)
+                    hand_rank = get_hand_rank_name(player1_rank)
+
+        # Update stacks and distribute pot
         if winner:
-            # Distribute pot to the winner
             winner.stack += self.pot
             print(f"{winner.name} wins the pot of {self.pot}.")
             # Show winner's hand
-            winner_hand = winner.hand.cards + self.community_cards
-            print(f"{winner.name}'s hand: {self.format_cards(winner_hand)}")
+            print(f"{winner.name}'s winning hand: {self.format_cards(winning_hand)} ({hand_rank})")
         else:
-            # Handle showdown and determine winner
-            winner = self.determine_winner()
-            if winner:
-                winner.stack += self.pot
-                print(f"{winner.name} wins the pot of {self.pot}.")
-                # Show winner's hand
-                winner_hand = winner.hand.cards + self.community_cards
-                print(f"{winner.name}'s hand: {self.format_cards(winner_hand)}")
-            else:
-                # Handle tie (split pot)
-                split_amount = self.pot // 2
-                for player in self.players:
-                    player.stack += split_amount
-                    player_hand = player.hand.cards + self.community_cards
-                    print(f"{player.name}'s hand: {self.format_cards(player_hand)}")
-                print(f"Pot is split between players.")
+            # Split the pot in case of a tie
+            split_amount = self.pot // 2
+            self.players[0].stack += split_amount
+            self.players[1].stack += split_amount
+            print("It's a tie! Pot is split between players.")
 
         # Print each player's stack
         for player in self.players:
@@ -228,33 +268,33 @@ class PokerGame:
         # Reset the pot to zero
         self.pot = 0  # Ensure pot is reset after distributing winnings
 
-        # Do not reset the deck here
-        # Prepare for the next round by resetting attributes but keep the deck until the round actually starts
-        self.reset_between_rounds()
-        
+        # Do NOT reset the game state here
+        # Leave the game in 'complete' stage to allow the GUI to display the showdown
+
         # Set stage to 'complete' to indicate that the round is over
         self.stage = 'complete'
+
+        # Return the winner, the winning hand, and the hand rank (for GUI)
+        return winner, winning_hand, hand_rank
 
 
     def format_cards(self, cards):
         return ', '.join([f"{card.rank} of {card.suit}" for card in cards])
 
-    def determine_winner(self):
-        player_hands = []
-        for player in self.players:
-            hand_rank, high_cards = evaluate_hand(player.hand.cards, self.community_cards)
-            player_hands.append((player, hand_rank, high_cards))
-
-        # Compare hand ranks
-        player_hands.sort(key=lambda x: (x[1], x[2]), reverse=True)
-        # Check for tie
-        if player_hands[0][1:] == player_hands[1][1:]:
-            print("It's a tie!")
-            return None  # Indicate a tie
-        else:
-            winner = player_hands[0][0]
-            print(f"{winner.name} wins with hand rank {player_hands[0][1]} and high cards {player_hands[0][2]}")
-            return winner
+    def get_best_five_card_hand(self, hand_cards, community_cards):
+        # Combine all cards
+        all_cards = hand_cards + community_cards
+        all_combinations = get_all_five_card_combinations(all_cards)
+        best_rank = -1
+        best_high_cards = []
+        best_hand = None
+        for combo in all_combinations:
+            rank, high_cards = classify_hand(combo)
+            if rank > best_rank or (rank == best_rank and high_cards > best_high_cards):
+                best_rank = rank
+                best_high_cards = high_cards
+                best_hand = combo
+        return best_hand
 
     def players_matched_bets(self):
         # Get the current bets of all players

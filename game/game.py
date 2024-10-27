@@ -24,6 +24,7 @@ class PokerGame:
         self.previous_actions = []
         self.small_blind = 10
         self.big_blind = 20
+        self.dealer = player1
         self.player_all_in = None  # Track if a player is all-in
         self.players_who_acted = set()  # Initialize players_who_acted
         self.actions_in_round = 0  # Initialize action count for betting rounds
@@ -41,8 +42,8 @@ class PokerGame:
         print("Betting Round: Pre-flop")
 
     def post_blinds(self):
-        small_blind_player = self.players[0]
-        big_blind_player = self.players[1]
+        small_blind_player = self.players[0] if self.dealer == self.players[1] else self.players[1]
+        big_blind_player = self.get_other_player(small_blind_player)
 
         # Small Blind
         small_blind_amount = min(self.small_blind, small_blind_player.stack)
@@ -89,6 +90,11 @@ class PokerGame:
         self.actions_in_round = 0
         self.winner_declared = False
         self.winner = None
+        self.switch_dealers()
+    
+    def switch_dealers(self):
+        self.dealer = self.players[0] if self.dealer == self.players[1] else self.players[1]
+        
 
     def reset_actions_in_round(self):
         self.actions_in_round = 0

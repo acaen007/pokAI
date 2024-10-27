@@ -7,8 +7,8 @@ class Player:
         self.current_bet = 0
 
     def bet(self, amount):
-        if amount <= 0:
-            raise ValueError("Bet amount must be greater than zero.")
+        if amount > self.stack:
+            print("You do not have enough chips to bet that amount. Betting all in.")
         actual_bet = min(self.stack, amount)
         self.stack -= actual_bet
         return actual_bet

@@ -7,10 +7,11 @@ class Player:
         self.current_bet = 0
 
     def bet(self, amount):
-        amount = min(amount, self.stack)
-        self.stack -= amount
-        self.current_bet += amount
-        return amount
+        if amount > self.stack:
+            print("You do not have enough chips to bet that amount. Betting all in.")
+        actual_bet = min(self.stack, amount)
+        self.stack -= actual_bet
+        return actual_bet
 
     def reset_bet(self):
         self.current_bet = 0

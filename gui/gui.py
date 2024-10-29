@@ -101,9 +101,14 @@ class PokerGUI:
 
     def draw_hand(self, cards, x, y, highlight_cards=None):
         for idx, card in enumerate(cards):
-            is_highlighted = highlight_cards and card in highlight_cards
+            is_highlighted = False
+            if highlight_cards:
+                for highlight_card in highlight_cards:
+                    if card.rank == highlight_card.rank and card.suit == highlight_card.suit:
+                        is_highlighted = True
+                        break
             self.draw_card(card, x + idx * 100, y, highlight=is_highlighted)
-        
+            
     def draw_community_cards(self):
         # Positions for the community cards
         start_x = SCREEN_WIDTH // 2 - 270
@@ -120,7 +125,7 @@ class PokerGUI:
             revealed_cards = 3
         elif self.game.stage == 'turn':
             revealed_cards = 4
-        elif self.game.stage == 'river' or self.game.stage == 'showdown' or self.game.stage == 'complete':
+        elif self.game.stage in ['river', 'showdown', 'complete']:
             revealed_cards = 5
         else:
             revealed_cards = 0
@@ -130,7 +135,14 @@ class PokerGUI:
             x = start_x + i * card_spacing
             if i < revealed_cards and i < len(self.game.community_cards):
                 # Draw the revealed card
-                self.draw_card(self.game.community_cards[i], x, y, highlight=self.game.community_cards[i] in self.winning_hand)
+                card = self.game.community_cards[i]
+                is_highlighted = False
+                if self.winning_hand:
+                    for highlight_card in self.winning_hand:
+                        if card.rank == highlight_card.rank and card.suit == highlight_card.suit:
+                            is_highlighted = True
+                            break
+                self.draw_card(card, x, y, highlight=is_highlighted)
             else:
                 # Draw the back of the card
                 back_image = CARD_IMAGES.get('back')
@@ -142,7 +154,7 @@ class PokerGUI:
 
     def bet_action(self):
         # Implement betting logic
-        amount = 10  # Placeholder amount
+        amount = self.game.small_blind  # Placeholder amount
         self.game.players[0].bet(amount)
         self.game.pot += amount
         print(f"Human bets {amount}.")
@@ -166,31 +178,14 @@ class PokerGUI:
         
         while self.running:
             SCREEN.fill((0, 128, 0))  # Green background
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    self.running = False
-                elif event.type == pygame.MOUSEBUTTONDOWN:
-                    x, y = event.pos
-                    self.handle_user_input(x, y)
-                    # Check if the input box is clicked
-                    if self.input_rect.collidepoint(event.pos):
-                        self.active_input = True
-                    else:
-                        self.active_input = False
-                elif event.type == pygame.KEYDOWN and self.active_input:
-                    if event.key == pygame.K_BACKSPACE:
-                        self.input_text = self.input_text[:-1]
-                    elif event.key == pygame.K_RETURN:
-                        # You can handle Enter key if needed
-                        pass
-                    else:
-                        self.input_text += event.unicode
+                        # Draw all game elements
+            self.draw_game_elements()
+
+            self.getHumanAction()
 
             # Update game state based on stages
             self.update_game_state()
 
-            # Draw all game elements
-            self.draw_game_elements()
 
             pygame.display.flip()
             self.clock.tick(60)  # Limit to 60 FPS
@@ -198,11 +193,34 @@ class PokerGUI:
         pygame.quit()
         sys.exit()
 
+    def getHumanAction(self):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.running = False
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                x, y = event.pos
+                self.handle_user_input(x, y)
+                    # Check if the input box is clicked
+                if self.input_rect.collidepoint(event.pos):
+                    self.active_input = True
+                else:
+                    self.active_input = False
+            elif event.type == pygame.KEYDOWN and self.active_input:
+                if event.key == pygame.K_BACKSPACE:
+                    self.input_text = self.input_text[:-1]
+                elif event.key == pygame.K_RETURN:
+                        # You can handle Enter key if needed
+                    pass
+                else:
+                    self.input_text += event.unicode
+
     def handle_user_input(self, x, y):
         # Check if buttons are clicked and handle actions
         for button_name, button_rect in self.button_rects.items():
             if button_rect.collidepoint(x, y):
-                if button_name == 'Bet':
+                if button_name == 'Check':
+                    self.human_action('check')
+                elif button_name == 'Bet':
                     self.human_action('bet', amount=10)
                 elif button_name == 'Call':
                     self.human_action('call')
@@ -322,18 +340,19 @@ class PokerGUI:
             self.draw_text("Raise Amount:", self.input_rect.x-40, self.input_rect.y - 75)
 
             # Draw action buttons
+            if self.game.current_player_index == 0 and not self.human_action_made and self.game.bets_to_match == 0: 
+                check_button_rect = self.draw_button("Check", SCREEN_WIDTH - 150, SCREEN_HEIGHT - 200, 100, 40)
+                self.button_rects['Check'] = check_button_rect
             bet_button_rect = self.draw_button("Bet", SCREEN_WIDTH - 150, SCREEN_HEIGHT - 150, 100, 40)
             call_button_rect = self.draw_button("Call", SCREEN_WIDTH - 150, SCREEN_HEIGHT - 100, 100, 40)
             fold_button_rect = self.draw_button("Fold", SCREEN_WIDTH - 150, SCREEN_HEIGHT - 50, 100, 40)
             raise_button_rect = self.draw_button("Raise", SCREEN_WIDTH - 250, SCREEN_HEIGHT - 100, 80, 40)
 
             # Store button rectangles for event handling
-            self.button_rects = {
-                'Bet': bet_button_rect,
-                'Call': call_button_rect,
-                'Fold': fold_button_rect,
-                'Raise': raise_button_rect
-            }
+            self.button_rects['Bet'] = bet_button_rect
+            self.button_rects['Call'] = call_button_rect
+            self.button_rects['Fold'] = fold_button_rect
+            self.button_rects['Raise'] = raise_button_rect
 
         if not self.running:
             self.draw_text("Game Over", SCREEN_WIDTH // 2 - 50, SCREEN_HEIGHT // 2, color=(255, 0, 0))
@@ -342,6 +361,7 @@ class PokerGUI:
     def is_button_clicked(self, button_name, x, y):
         # Define button positions and sizes
         buttons = {
+            'Check': pygame.Rect(SCREEN_WIDTH - 150, SCREEN_HEIGHT - 200, 100, 40),
             'Bet': pygame.Rect(SCREEN_WIDTH - 150, SCREEN_HEIGHT - 150, 100, 40),
             'Call': pygame.Rect(SCREEN_WIDTH - 150, SCREEN_HEIGHT - 100, 100, 40),
             'Fold': pygame.Rect(SCREEN_WIDTH - 150, SCREEN_HEIGHT - 50, 100, 40),

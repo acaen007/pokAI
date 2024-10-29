@@ -1,8 +1,16 @@
 # game.py
+
 from game.deck import Deck
+from game.hand import Hand
+from game.player import Player
 from ai.agent import PokerAI
 import numpy as np
-from game.hand_evaluator import evaluate_hand, get_hand_rank_name, classify_hand, get_all_five_card_combinations
+from game.hand_evaluator import (
+    evaluate_hand,
+    get_hand_rank_name,
+    classify_hand,
+    get_all_five_card_combinations
+)
 
 class PokerGame:
     def __init__(self, player1, player2):
@@ -11,20 +19,62 @@ class PokerGame:
         self.deck = None
         self.community_cards = []
         self.current_player_index = 0
-        self.stage = 'not_started'  # Added to track the game stage
-        self.bets_to_match = 0  # To track the current bet to match
-        self.previous_actions = []  # Keep track of actions
+        self.stage = 'not_started'
+        self.bets_to_match = 0
+        self.previous_actions = []
+        self.small_blind = 10
+        self.big_blind = 20
+        self.dealer = player1
+        self.player_all_in = None  # Track if a player is all-in
+        self.players_who_acted = set()  # Initialize players_who_acted
+        self.actions_in_round = 0  # Initialize action count for betting rounds
         self.winner_declared = False  # To track if winner is declared early (e.g., on fold)
         self.winner = None  # To store the winner when declared early
 
     def start_new_round(self):
-        print("Starting a new round.")
-        self.reset()
+        print("\nStarting a new round.")
+        print("player_stacks:", [player.stack for player in self.players])
+        self.reset_between_rounds()
         self.deck = Deck()
         self.deal_hole_cards()
         self.stage = 'pre_flop'
+        self.post_blinds()
+        print("Betting Round: Pre-flop")
 
-    def reset(self):
+    def post_blinds(self):
+        small_blind_player = self.players[0] if self.dealer == self.players[1] else self.players[1]
+        big_blind_player = self.get_other_player(small_blind_player)
+
+        # Small Blind
+        small_blind_amount = min(self.small_blind, small_blind_player.stack)
+        small_blind_player.bet(small_blind_amount)
+        small_blind_player.current_bet = small_blind_amount
+        self.pot += small_blind_amount
+        print(f"{small_blind_player.name} posts small blind of {small_blind_amount}.")
+
+        # Big Blind
+        big_blind_amount = min(self.big_blind, big_blind_player.stack)
+        big_blind_player.bet(big_blind_amount)
+        big_blind_player.current_bet = big_blind_amount
+        self.pot += big_blind_amount
+        print(f"{big_blind_player.name} posts big blind of {big_blind_amount}.")
+
+        # Set bets to match
+        self.bets_to_match = max(small_blind_player.current_bet, big_blind_player.current_bet)
+
+        # Check for all-in players
+        if small_blind_player.stack == 0:
+            self.player_all_in = small_blind_player
+            print(f"{small_blind_player.name} is all-in.")
+        if big_blind_player.stack == 0:
+            self.player_all_in = big_blind_player
+            print(f"{big_blind_player.name} is all-in.")
+
+        # Action starts with the player after the big blind
+        self.current_player_index = (self.players.index(big_blind_player) + 1) % len(self.players)
+
+    def reset_between_rounds(self):
+        # Reset attributes between rounds but keep players' stacks
         self.pot = 0
         self.deck = None
         self.community_cards = []
@@ -35,29 +85,46 @@ class PokerGame:
         self.stage = 'not_started'
         self.bets_to_match = 0
         self.previous_actions = []
+        self.player_all_in = None
+        self.players_who_acted = set()
+        self.actions_in_round = 0
         self.winner_declared = False
         self.winner = None
+        self.switch_dealers()
+    
+    def switch_dealers(self):
+        self.dealer = self.players[0] if self.dealer == self.players[1] else self.players[1]
+        
+
+    def reset_actions_in_round(self):
+        self.actions_in_round = 0
+        self.players_who_acted = set()
 
     def next_stage(self):
         # Reset current bets and bets to match at the start of the new betting round
         for player in self.players:
             player.current_bet = 0
         self.bets_to_match = 0
+        self.reset_actions_in_round()  # Reset at the start of each betting round
 
-        if self.stage == 'not_started' or self.stage == 'complete':
-            self.start_new_round()
-            self.stage = 'pre_flop'
-        elif self.stage == 'pre_flop':
+        if self.stage == 'pre_flop':
             self.deal_community_cards(3)  # Flop
             self.stage = 'flop'
+            print("Betting Round: Flop")
+            print("Community Cards:", self.format_cards(self.community_cards))
         elif self.stage == 'flop':
             self.deal_community_cards(1)  # Turn
             self.stage = 'turn'
+            print("Betting Round: Turn")
+            print("Community Cards:", self.format_cards(self.community_cards))
         elif self.stage == 'turn':
             self.deal_community_cards(1)  # River
             self.stage = 'river'
+            print("Betting Round: River")
+            print("Community Cards:", self.format_cards(self.community_cards))
         elif self.stage == 'river':
             self.stage = 'showdown'
+            print("Proceeding to Showdown")
         else:
             self.stage = 'complete'
 
@@ -75,40 +142,79 @@ class PokerGame:
             'player_hand': player.hand.cards,
             'community_cards': self.community_cards,
             'pot': self.pot,
-            'previous_actions': self.previous_actions,
-            'bets_to_match': self.bets_to_match
+            'action_history': self.previous_actions,
+            'bets_to_match': self.bets_to_match,
+            'player_stack': player.stack,
+            'current_bet': player.current_bet,
+            'betting_allowed': self.is_betting_allowed()
         }
         return state
 
-    def handle_action(self, player, action, amount=0):
+    def handle_action(self, player, action, amount=0, action_index=None):
+        player_index = self.players.index(player)
+        bets_to_match = self.bets_to_match
+        current_bet = player.current_bet
+
+        # Validate action legality
+        if action == 'check' and bets_to_match > current_bet:
+            # Illegal action: cannot check when there's an outstanding bet
+            print(f"{player.name} cannot check when there's an outstanding bet.")
+            # For simplicity, we'll treat this as a fold here
+            action = 'fold'
+
         if action == 'fold':
-            # Handle folding
             print(f"{player.name} folds.")
             winner = self.get_other_player(player)
             self.winner_declared = True  # Indicate that the winner has been declared
             self.winner = winner  # Store the winner
             self.stage = 'showdown'  # Move directly to showdown
-        elif action == 'call':
-            call_amount = self.bets_to_match - player.current_bet
-            bet_amount = player.bet(call_amount)
-            self.pot += bet_amount
-            print(f"{player.name} calls {call_amount}.")
-            player.current_bet += bet_amount
-        elif action == 'raise' or action == 'bet':
-            total_bet = amount
-            bet_amount = player.bet(total_bet - player.current_bet)
-            self.pot += bet_amount
-            self.bets_to_match = total_bet
-            print(f"{player.name} {action}s to {total_bet}.")
-            player.current_bet += bet_amount
+            self.end_round()
+            return  # Round ends when a player folds
         elif action == 'check':
             print(f"{player.name} checks.")
-        action_code = self.action_to_code(action)
-        self.previous_actions.append(action_code)
+        elif action == 'call':
+            call_amount = self.bets_to_match - player.current_bet
+            bet_amount = min(call_amount, player.stack)
+            if bet_amount <= 0:
+                # Nothing to call, treat as a check
+                print(f"{player.name} checks.")
+            else:
+                actual_bet = player.bet(bet_amount)
+                self.pot += actual_bet
+                player.current_bet += actual_bet
+                print(f"{player.name} calls {actual_bet}.")
+                if player.stack == 0:
+                    self.player_all_in = player
+                    print(f"{player.name} is all-in.")
+        elif action in ['bet', 'raise']:
+            total_bet = amount
+            bet_amount = total_bet - player.current_bet
+            # Ensure bet_amount does not exceed player's stack
+            bet_amount = min(bet_amount, player.stack)
+            if bet_amount <= 0:
+                print(f"{player.name} attempts to {action} with invalid total bet amount {total_bet}.")
+                bet_amount = min(self.big_blind, player.stack)
+                total_bet = player.current_bet + bet_amount
+            else:
+                total_bet = player.current_bet + bet_amount
+            actual_bet = player.bet(bet_amount)
+            self.pot += actual_bet
+            self.bets_to_match = max(self.bets_to_match, total_bet)
+            player.current_bet = total_bet
+            print(f"{player.name} {action}s to {total_bet}.")
+            if player.stack == 0:
+                self.player_all_in = player
+                print(f"{player.name} is all-in.")
+        else:
+            print(f"Unknown action: {action}")
 
-    def action_to_code(self, action):
-        action_mapping = {'fold': 0, 'check': 1, 'call': 2, 'bet': 3, 'raise': 4}
-        return action_mapping.get(action, -1)
+        if action_index is None:
+            action_index = 0  # Default action index if not provided
+        action_info = {'player_index': player_index, 'action_index': action_index}
+        self.previous_actions.append(action_info)
+
+        # Record that the player has acted
+        self.players_who_acted.add(player)
 
     def get_other_player(self, player):
         return self.players[0] if self.players[1] == player else self.players[1]
@@ -151,17 +257,35 @@ class PokerGame:
         # Update stacks and distribute pot
         if winner:
             winner.stack += self.pot
+            print(f"{winner.name} wins the pot of {self.pot}.")
+            # Show winner's hand
+            print(f"{winner.name}'s winning hand: {self.format_cards(winning_hand)} ({hand_rank})")
         else:
             # Split the pot in case of a tie
             split_amount = self.pot // 2
             self.players[0].stack += split_amount
             self.players[1].stack += split_amount
+            print("It's a tie! Pot is split between players.")
 
-        # Reset pot
-        self.pot = 0
+        # Print each player's stack
+        for player in self.players:
+            print(f"{player.name} stack: {player.stack}")
 
-        # Return the winner, the winning hand, and the hand rank
+        # Reset the pot to zero
+        self.pot = 0  # Ensure pot is reset after distributing winnings
+
+        # Do NOT reset the game state here
+        # Leave the game in 'complete' stage to allow the GUI to display the showdown
+
+        # Set stage to 'complete' to indicate that the round is over
+        self.stage = 'complete'
+
+        # Return the winner, the winning hand, and the hand rank (for GUI)
         return winner, winning_hand, hand_rank
+
+
+    def format_cards(self, cards):
+        return ', '.join([f"{card.rank} of {card.suit}" for card in cards])
 
     def get_best_five_card_hand(self, hand_cards, community_cards):
         # Combine all cards
@@ -179,7 +303,41 @@ class PokerGame:
         return best_hand
 
     def players_matched_bets(self):
-        # Get the current bets of all active players
+        # Get the current bets of all players
         bets = [player.current_bet for player in self.players]
-        # Check if all bets are equal
-        return all(bet == bets[0] for bet in bets)
+        max_bet = max(bets)
+        # Players who can act (have chips left)
+        active_players = [player for player in self.players if player.stack > 0]
+        for player in active_players:
+            if player.current_bet < max_bet:
+                return False
+        return True
+
+    def all_players_acted(self):
+        # All players have acted if each player has made at least one action in this betting round
+        return self.actions_in_round >= len(self.players)
+
+    def is_betting_allowed(self):
+        # Betting is allowed if not all players are all-in
+        active_players = [player for player in self.players if player.stack > 0]
+        return len(active_players) > 1
+
+    def should_move_to_next_stage(self):
+        """
+        Determines whether the betting round should end and move to the next stage.
+        The betting round ends when:
+        - All players have acted at least once in the current betting round, and
+          - All players have checked (no bets were made), or
+          - A bet has been made and then called or all-in has been called.
+        """
+        # If all players have acted at least once
+        if self.actions_in_round >= len(self.players):
+            # If all players have checked
+            if self.bets_to_match == 0 and all(player.current_bet == 0 for player in self.players):
+                print("All players have checked. Moving to next stage.")
+                return True
+            # If bets are matched (including all-ins)
+            elif self.players_matched_bets():
+                print("Bets are matched. Moving to next stage.")
+                return True
+        return False

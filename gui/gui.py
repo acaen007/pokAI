@@ -92,7 +92,7 @@ class PokerGUI:
         self.draw_text("D", dealer_pos[0] - 5, dealer_pos[1] - 8, color=(0, 0, 0))
 
     def draw_turn_arrow(self):
-        arrow_pos = (250, SCREEN_HEIGHT - 100) if self.game.current_player_index == 0 else (250, 40)
+        arrow_pos = (250, SCREEN_HEIGHT - 100) if self.game.current_player_index == 0 else (250, 100)
         pygame.draw.polygon(SCREEN, (255, 255, 0), [(arrow_pos[0], arrow_pos[1]), (arrow_pos[0] - 10, arrow_pos[1] - 10), (arrow_pos[0], arrow_pos[1] - 20)])  # Yellow arrow
 
 

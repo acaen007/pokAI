@@ -204,7 +204,7 @@ class PokerGame:
             total_bet = amount
             bet_amount = total_bet - player.current_bet
             # Ensure bet_amount does not exceed player's stack
-            bet_amount = min(min(bet_amount, player.stack), self.get_other_player(player).stack)
+            bet_amount = min(min(bet_amount, player.stack), (self.get_other_player(player).stack+player.current_bet))
             if bet_amount <= 0:
                 print(f"{player.name} attempts to {action} with invalid total bet amount {total_bet}.")
                 bet_amount = min(self.big_blind, player.stack)

@@ -85,6 +85,16 @@ class PokerGUI:
         self.draw_text(text, x + 10, y + 10)
 
         return button_rect
+    
+    def draw_dealer_button(self):
+        dealer_pos = (100, SCREEN_HEIGHT - 230) if self.game.dealer == self.game.players[0] else (100, 220)
+        pygame.draw.circle(SCREEN, (255, 215, 0), dealer_pos, 15)  # Gold-colored dealer button
+        self.draw_text("D", dealer_pos[0] - 5, dealer_pos[1] - 8, color=(0, 0, 0))
+
+    def draw_turn_arrow(self):
+        arrow_pos = (250, SCREEN_HEIGHT - 100) if self.game.current_player_index == 0 else (250, 40)
+        pygame.draw.polygon(SCREEN, (255, 255, 0), [(arrow_pos[0], arrow_pos[1]), (arrow_pos[0] - 10, arrow_pos[1] - 10), (arrow_pos[0], arrow_pos[1] - 20)])  # Yellow arrow
+
 
     def draw_card(self, card, x, y, highlight=False):
         card_name = f"{card.suit}_{card.rank}"
@@ -305,6 +315,11 @@ class PokerGUI:
         for idx, player in enumerate(self.game.players):
             y_pos = SCREEN_HEIGHT - 200 if idx == 0 else 20
             self.draw_text(f"{player.name} Stack: {player.stack}", 50, y_pos)
+        # Draw dealer button and turn arrow
+        self.draw_dealer_button()
+        self.draw_turn_arrow()
+
+
 
         if self.game.stage == 'complete':
             # Display winner and hand rank

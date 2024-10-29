@@ -35,6 +35,7 @@ class PokerGame:
         print("\nStarting a new round.")
         print("player_stacks:", [player.stack for player in self.players])
         self.reset_between_rounds()
+        print("Dealer:", self.dealer.name)
         self.deck = Deck()
         self.deal_hole_cards()
         self.stage = 'pre_flop'
@@ -42,7 +43,7 @@ class PokerGame:
         print("Betting Round: Pre-flop")
 
     def post_blinds(self):
-        small_blind_player = self.players[0] if self.dealer == self.players[1] else self.players[1]
+        small_blind_player = self.players[0] if self.dealer == self.players[0] else self.players[1]
         big_blind_player = self.get_other_player(small_blind_player)
 
         # Small Blind
@@ -94,6 +95,11 @@ class PokerGame:
     
     def switch_dealers(self):
         self.dealer = self.players[0] if self.dealer == self.players[1] else self.players[1]
+        #first player to act alternates between pre-flop and flop
+        self.switchPlayerToAct()
+
+    def switchPlayerToAct(self):
+        self.current_player_index = (self.players.index(self.dealer) + 1) % len(self.players)
         
 
     def reset_actions_in_round(self):
@@ -112,6 +118,8 @@ class PokerGame:
             self.stage = 'flop'
             print("Betting Round: Flop")
             print("Community Cards:", self.format_cards(self.community_cards))
+            self.switchPlayerToAct()
+            print("Player to act:", self.players[self.current_player_index].name)
         elif self.stage == 'flop':
             self.deal_community_cards(1)  # Turn
             self.stage = 'turn'
@@ -172,6 +180,7 @@ class PokerGame:
             return  # Round ends when a player folds
         elif action == 'check':
             print(f"{player.name} checks.")
+            action = 'check'
         elif action == 'call':
             call_amount = self.bets_to_match - player.current_bet
             bet_amount = min(call_amount, player.stack)
@@ -215,6 +224,8 @@ class PokerGame:
 
         # Record that the player has acted
         self.players_who_acted.add(player)
+
+        self.current_player_index = (self.current_player_index + 1) % len(self.players)
 
     def get_other_player(self, player):
         return self.players[0] if self.players[1] == player else self.players[1]

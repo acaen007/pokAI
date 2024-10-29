@@ -172,27 +172,6 @@ class PokerGUI:
         self.game.handle_action(self.game.players[0], 'fold')
         self.human_action_made = True
 
-    def main_loop(self):
-        # Start a new round
-        self.game.start_new_round()
-        
-        while self.running:
-            SCREEN.fill((0, 128, 0))  # Green background
-                        # Draw all game elements
-            self.draw_game_elements()
-
-            self.getHumanAction()
-
-            # Update game state based on stages
-            self.update_game_state()
-
-
-            pygame.display.flip()
-            self.clock.tick(60)  # Limit to 60 FPS
-
-        pygame.quit()
-        sys.exit()
-
     def getHumanAction(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -218,6 +197,7 @@ class PokerGUI:
         # Check if buttons are clicked and handle actions
         for button_name, button_rect in self.button_rects.items():
             if button_rect.collidepoint(x, y):
+                print(f"Button {button_name} clicked.")
                 if button_name == 'Check':
                     self.human_action('check')
                 elif button_name == 'Bet':
@@ -251,6 +231,7 @@ class PokerGUI:
                 break  # Stop checking after the first matching button
 
     def human_action(self, action, amount=0):
+        print("Was a human action made?" + str(self.human_action_made))
         if not self.human_action_made:
             self.game.handle_action(self.game.players[0], action, amount=amount)
             self.human_action_made = True  # Prevent multiple actions in one turn
@@ -261,7 +242,14 @@ class PokerGUI:
 
     def update_game_state(self):
         if self.game.stage in ['pre_flop', 'flop', 'turn', 'river']:
-            if self.human_action_made:
+
+            # Check if both players have matched bets
+            if self.players_matched_bets() and len(self.game.players_who_acted) == 2:
+                # Move to next stage
+                self.game.next_stage()
+                self.human_action_made = False
+
+            if self.game.current_player_index == 1:
                 # AI's turn
                 ai_player = self.game.players[1]
                 game_state = self.game.get_game_state(ai_player)
@@ -270,10 +258,6 @@ class PokerGUI:
                 self.game.handle_action(ai_player, action_str)
                 self.human_action_made = False
 
-                # Check if both players have matched bets
-                if self.players_matched_bets():
-                    # Move to next stage
-                    self.game.next_stage()
         elif self.game.stage == 'showdown':
             # Showdown logic
             self.show_ai_hand = True
@@ -340,7 +324,7 @@ class PokerGUI:
             self.draw_text("Raise Amount:", self.input_rect.x-40, self.input_rect.y - 75)
 
             # Draw action buttons
-            if self.game.current_player_index == 0 and not self.human_action_made and self.game.bets_to_match == 0: 
+            if (self.game.current_player_index == 0 and self.game.bets_to_match == 0 and self.game.stage != 'pre_flop') or (self.game.current_player_index == 0 and self.game.stage == 'pre_flop'): 
                 check_button_rect = self.draw_button("Check", SCREEN_WIDTH - 150, SCREEN_HEIGHT - 200, 100, 40)
                 self.button_rects['Check'] = check_button_rect
             bet_button_rect = self.draw_button("Bet", SCREEN_WIDTH - 150, SCREEN_HEIGHT - 150, 100, 40)
@@ -375,6 +359,26 @@ class PokerGUI:
         # Map AI action index to action string
         action_mapping = {0: 'fold', 1: 'call', 2: 'raise'}
         return action_mapping.get(action_index, 'call')
+    
+    def main_loop(self):
+        # Start a new round
+        self.game.start_new_round()
+        
+        while self.running:
+            SCREEN.fill((0, 128, 0))  # Green background
+                        # Draw all game elements
+            self.draw_game_elements()
+
+            self.getHumanAction()
+
+            # Update game state based on stages
+            self.update_game_state()
+
+            pygame.display.flip()
+            self.clock.tick(60)  # Limit to 60 FPS
+
+        pygame.quit()
+        sys.exit()
 
 if __name__ == "__main__":
     gui = PokerGUI()

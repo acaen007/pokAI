@@ -85,6 +85,16 @@ class PokerGUI:
         self.draw_text(text, x + 10, y + 10)
 
         return button_rect
+    
+    def draw_dealer_button(self):
+        dealer_pos = (100, SCREEN_HEIGHT - 230) if self.game.dealer == self.game.players[0] else (100, 220)
+        pygame.draw.circle(SCREEN, (255, 215, 0), dealer_pos, 15)  # Gold-colored dealer button
+        self.draw_text("D", dealer_pos[0] - 5, dealer_pos[1] - 8, color=(0, 0, 0))
+
+    def draw_turn_arrow(self):
+        arrow_pos = (250, SCREEN_HEIGHT - 100) if self.game.current_player_index == 0 else (250, 100)
+        pygame.draw.polygon(SCREEN, (255, 255, 0), [(arrow_pos[0], arrow_pos[1]), (arrow_pos[0] - 10, arrow_pos[1] - 10), (arrow_pos[0], arrow_pos[1] - 20)])  # Yellow arrow
+
 
     def draw_card(self, card, x, y, highlight=False):
         card_name = f"{card.suit}_{card.rank}"
@@ -172,27 +182,6 @@ class PokerGUI:
         self.game.handle_action(self.game.players[0], 'fold')
         self.human_action_made = True
 
-    def main_loop(self):
-        # Start a new round
-        self.game.start_new_round()
-        
-        while self.running:
-            SCREEN.fill((0, 128, 0))  # Green background
-                        # Draw all game elements
-            self.draw_game_elements()
-
-            self.getHumanAction()
-
-            # Update game state based on stages
-            self.update_game_state()
-
-
-            pygame.display.flip()
-            self.clock.tick(60)  # Limit to 60 FPS
-
-        pygame.quit()
-        sys.exit()
-
     def getHumanAction(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -218,6 +207,7 @@ class PokerGUI:
         # Check if buttons are clicked and handle actions
         for button_name, button_rect in self.button_rects.items():
             if button_rect.collidepoint(x, y):
+                print(f"Button {button_name} clicked.")
                 if button_name == 'Check':
                     self.human_action('check')
                 elif button_name == 'Bet':
@@ -239,6 +229,11 @@ class PokerGUI:
                         print("Invalid raise amount.")
                 elif button_name == 'Next Hand':
                     # Reset game state for the next hand
+
+                    #if either player has run out of chips, reset the stacks
+                    if self.game.players[0].stack <= 0 or self.game.players[1].stack <= 0:
+                        self.game.players[0].stack = 1000
+                        self.game.players[1].stack = 1000
                     self.game.start_new_round()
                     self.human_action_made = False
                     self.show_ai_hand = False
@@ -261,7 +256,14 @@ class PokerGUI:
 
     def update_game_state(self):
         if self.game.stage in ['pre_flop', 'flop', 'turn', 'river']:
-            if self.human_action_made:
+
+            # Check if both players have matched bets
+            if self.players_matched_bets() and len(self.game.players_who_acted)== 2:
+                # Move to next stage
+                self.game.next_stage()
+                self.human_action_made = False
+
+            if self.game.current_player_index == 1:
                 # AI's turn
                 ai_player = self.game.players[1]
                 game_state = self.game.get_game_state(ai_player)
@@ -270,10 +272,6 @@ class PokerGUI:
                 self.game.handle_action(ai_player, action_str)
                 self.human_action_made = False
 
-                # Check if both players have matched bets
-                if self.players_matched_bets():
-                    # Move to next stage
-                    self.game.next_stage()
         elif self.game.stage == 'showdown':
             # Showdown logic
             self.show_ai_hand = True
@@ -317,6 +315,11 @@ class PokerGUI:
         for idx, player in enumerate(self.game.players):
             y_pos = SCREEN_HEIGHT - 200 if idx == 0 else 20
             self.draw_text(f"{player.name} Stack: {player.stack}", 50, y_pos)
+        # Draw dealer button and turn arrow
+        self.draw_dealer_button()
+        self.draw_turn_arrow()
+
+
 
         if self.game.stage == 'complete':
             # Display winner and hand rank
@@ -340,7 +343,7 @@ class PokerGUI:
             self.draw_text("Raise Amount:", self.input_rect.x-40, self.input_rect.y - 75)
 
             # Draw action buttons
-            if self.game.current_player_index == 0 and not self.human_action_made and self.game.bets_to_match == 0: 
+            if (self.game.current_player_index == 0 and self.game.bets_to_match == self.game.players[0].current_bet and self.game.stage != 'pre_flop') or (self.game.current_player_index == 0 and self.game.stage == 'pre_flop' and self.game.bets_to_match == self.game.players[0].current_bet): 
                 check_button_rect = self.draw_button("Check", SCREEN_WIDTH - 150, SCREEN_HEIGHT - 200, 100, 40)
                 self.button_rects['Check'] = check_button_rect
             bet_button_rect = self.draw_button("Bet", SCREEN_WIDTH - 150, SCREEN_HEIGHT - 150, 100, 40)
@@ -375,6 +378,26 @@ class PokerGUI:
         # Map AI action index to action string
         action_mapping = {0: 'fold', 1: 'call', 2: 'raise'}
         return action_mapping.get(action_index, 'call')
+    
+    def main_loop(self):
+        # Start a new round
+        self.game.start_new_round()
+        
+        while self.running:
+            SCREEN.fill((0, 128, 0))  # Green background
+                        # Draw all game elements
+            self.draw_game_elements()
+
+            self.getHumanAction()
+
+            # Update game state based on stages
+            self.update_game_state()
+
+            pygame.display.flip()
+            self.clock.tick(60)  # Limit to 60 FPS
+
+        pygame.quit()
+        sys.exit()
 
 if __name__ == "__main__":
     gui = PokerGUI()

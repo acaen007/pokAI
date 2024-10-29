@@ -35,6 +35,7 @@ class PokerGame:
         print("\nStarting a new round.")
         print("player_stacks:", [player.stack for player in self.players])
         self.reset_between_rounds()
+        print("Dealer:", self.dealer.name)
         self.deck = Deck()
         self.deal_hole_cards()
         self.stage = 'pre_flop'
@@ -42,7 +43,7 @@ class PokerGame:
         print("Betting Round: Pre-flop")
 
     def post_blinds(self):
-        small_blind_player = self.players[0] if self.dealer == self.players[1] else self.players[1]
+        small_blind_player = self.players[0] if self.dealer == self.players[0] else self.players[1]
         big_blind_player = self.get_other_player(small_blind_player)
 
         # Small Blind
@@ -94,6 +95,11 @@ class PokerGame:
     
     def switch_dealers(self):
         self.dealer = self.players[0] if self.dealer == self.players[1] else self.players[1]
+        #first player to act alternates between pre-flop and flop
+        self.switchPlayerToAct()
+
+    def switchPlayerToAct(self):
+        self.current_player_index = (self.players.index(self.dealer) + 1) % len(self.players)
         
 
     def reset_actions_in_round(self):
@@ -101,6 +107,12 @@ class PokerGame:
         self.players_who_acted = set()
 
     def next_stage(self):
+
+        print("all in player " +  str(self.player_all_in))
+        if self.player_all_in is not None:
+            self.stage = 'river'
+            while len(self.community_cards) < 5:
+                self.deal_community_cards(1)
         # Reset current bets and bets to match at the start of the new betting round
         for player in self.players:
             player.current_bet = 0
@@ -112,6 +124,8 @@ class PokerGame:
             self.stage = 'flop'
             print("Betting Round: Flop")
             print("Community Cards:", self.format_cards(self.community_cards))
+            self.switchPlayerToAct()
+            print("Player to act:", self.players[self.current_player_index].name)
         elif self.stage == 'flop':
             self.deal_community_cards(1)  # Turn
             self.stage = 'turn'
@@ -190,7 +204,7 @@ class PokerGame:
             total_bet = amount
             bet_amount = total_bet - player.current_bet
             # Ensure bet_amount does not exceed player's stack
-            bet_amount = min(bet_amount, player.stack)
+            bet_amount = min(min(bet_amount, player.stack), (self.get_other_player(player).stack+player.current_bet))
             if bet_amount <= 0:
                 print(f"{player.name} attempts to {action} with invalid total bet amount {total_bet}.")
                 bet_amount = min(self.big_blind, player.stack)
@@ -208,6 +222,8 @@ class PokerGame:
         else:
             print(f"Unknown action: {action}")
 
+        action_index = self.get_action_index(action)
+
         if action_index is None:
             action_index = 0  # Default action index if not provided
         action_info = {'player_index': player_index, 'action_index': action_index}
@@ -215,6 +231,22 @@ class PokerGame:
 
         # Record that the player has acted
         self.players_who_acted.add(player)
+
+        self.current_player_index = (self.current_player_index + 1) % len(self.players)
+
+    def get_action_index(self, action):
+        if action == 'check':
+            return 0
+        elif action == 'fold':
+            return 1
+        elif action == 'call':
+            return 2
+        elif action == 'bet':
+            return 3
+        elif action == 'raise':
+            return 4
+        else:
+            return None
 
     def get_other_player(self, player):
         return self.players[0] if self.players[1] == player else self.players[1]

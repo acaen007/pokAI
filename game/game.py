@@ -107,6 +107,12 @@ class PokerGame:
         self.players_who_acted = set()
 
     def next_stage(self):
+
+        print("all in player " +  str(self.player_all_in))
+        if self.player_all_in is not None:
+            self.stage = 'river'
+            while len(self.community_cards) < 5:
+                self.deal_community_cards(1)
         # Reset current bets and bets to match at the start of the new betting round
         for player in self.players:
             player.current_bet = 0
@@ -180,7 +186,6 @@ class PokerGame:
             return  # Round ends when a player folds
         elif action == 'check':
             print(f"{player.name} checks.")
-            action = 'check'
         elif action == 'call':
             call_amount = self.bets_to_match - player.current_bet
             bet_amount = min(call_amount, player.stack)
@@ -199,7 +204,7 @@ class PokerGame:
             total_bet = amount
             bet_amount = total_bet - player.current_bet
             # Ensure bet_amount does not exceed player's stack
-            bet_amount = min(bet_amount, player.stack)
+            bet_amount = min(min(bet_amount, player.stack), self.get_other_player(player).stack)
             if bet_amount <= 0:
                 print(f"{player.name} attempts to {action} with invalid total bet amount {total_bet}.")
                 bet_amount = min(self.big_blind, player.stack)
@@ -217,6 +222,8 @@ class PokerGame:
         else:
             print(f"Unknown action: {action}")
 
+        action_index = self.get_action_index(action)
+
         if action_index is None:
             action_index = 0  # Default action index if not provided
         action_info = {'player_index': player_index, 'action_index': action_index}
@@ -226,6 +233,20 @@ class PokerGame:
         self.players_who_acted.add(player)
 
         self.current_player_index = (self.current_player_index + 1) % len(self.players)
+
+    def get_action_index(self, action):
+        if action == 'check':
+            return 0
+        elif action == 'fold':
+            return 1
+        elif action == 'call':
+            return 2
+        elif action == 'bet':
+            return 3
+        elif action == 'raise':
+            return 4
+        else:
+            return None
 
     def get_other_player(self, player):
         return self.players[0] if self.players[1] == player else self.players[1]

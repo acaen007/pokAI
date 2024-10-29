@@ -219,6 +219,11 @@ class PokerGUI:
                         print("Invalid raise amount.")
                 elif button_name == 'Next Hand':
                     # Reset game state for the next hand
+
+                    #if either player has run out of chips, reset the stacks
+                    if self.game.players[0].stack <= 0 or self.game.players[1].stack <= 0:
+                        self.game.players[0].stack = 1000
+                        self.game.players[1].stack = 1000
                     self.game.start_new_round()
                     self.human_action_made = False
                     self.show_ai_hand = False
@@ -231,7 +236,6 @@ class PokerGUI:
                 break  # Stop checking after the first matching button
 
     def human_action(self, action, amount=0):
-        print("Was a human action made?" + str(self.human_action_made))
         if not self.human_action_made:
             self.game.handle_action(self.game.players[0], action, amount=amount)
             self.human_action_made = True  # Prevent multiple actions in one turn
@@ -244,7 +248,7 @@ class PokerGUI:
         if self.game.stage in ['pre_flop', 'flop', 'turn', 'river']:
 
             # Check if both players have matched bets
-            if self.players_matched_bets() and len(self.game.players_who_acted) == 2:
+            if self.players_matched_bets() and len(self.game.players_who_acted)== 2:
                 # Move to next stage
                 self.game.next_stage()
                 self.human_action_made = False
@@ -324,7 +328,7 @@ class PokerGUI:
             self.draw_text("Raise Amount:", self.input_rect.x-40, self.input_rect.y - 75)
 
             # Draw action buttons
-            if (self.game.current_player_index == 0 and self.game.bets_to_match == 0 and self.game.stage != 'pre_flop') or (self.game.current_player_index == 0 and self.game.stage == 'pre_flop'): 
+            if (self.game.current_player_index == 0 and self.game.bets_to_match == self.game.players[0].current_bet and self.game.stage != 'pre_flop') or (self.game.current_player_index == 0 and self.game.stage == 'pre_flop' and self.game.bets_to_match == self.game.players[0].current_bet): 
                 check_button_rect = self.draw_button("Check", SCREEN_WIDTH - 150, SCREEN_HEIGHT - 200, 100, 40)
                 self.button_rects['Check'] = check_button_rect
             bet_button_rect = self.draw_button("Bet", SCREEN_WIDTH - 150, SCREEN_HEIGHT - 150, 100, 40)

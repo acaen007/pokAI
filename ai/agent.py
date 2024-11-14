@@ -102,12 +102,12 @@ class PokerAI(Player):
                 # Select action with highest probability among legal actions
                 policy_probs = policy.numpy().flatten()
                 policy_probs = [policy_probs[i] if i in legal_actions else 0 for i in range(self.nb)]
-                total_prob = sum(policy_probs)
+                total_prob = np.sum(policy_probs)
                 if total_prob == 0:
                     # All legal actions have zero probability, choose randomly
                     action_index = random.choice(legal_actions)
                 else:
-                    policy_probs = [p / total_prob for p in policy_probs]
+                    policy_probs = policy_probs / total_prob
                     action_index = np.random.choice(self.nb, p=policy_probs)
             # Map action index to actual action and amount
             action, amount = self.map_action_index_to_action(action_index, game_state)

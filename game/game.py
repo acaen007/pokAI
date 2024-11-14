@@ -107,7 +107,6 @@ class PokerGame:
         self.players_who_acted = set()
 
     def next_stage(self):
-
         print("all in player " +  str(self.player_all_in))
         if self.player_all_in is not None:
             self.stage = 'river'
@@ -204,7 +203,8 @@ class PokerGame:
             total_bet = amount
             bet_amount = total_bet - player.current_bet
             # Ensure bet_amount does not exceed player's stack
-            bet_amount = min(min(bet_amount, player.stack), (self.get_other_player(player).stack+player.current_bet))
+            other_player = self.get_other_player(player)
+            bet_amount = min(min(bet_amount, player.stack), (other_player.stack+other_player.current_bet-player.current_bet))
             if bet_amount <= 0:
                 print(f"{player.name} attempts to {action} with invalid total bet amount {total_bet}.")
                 bet_amount = min(self.big_blind, player.stack)

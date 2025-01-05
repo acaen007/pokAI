@@ -30,6 +30,7 @@ class PokerGame:
         self.actions_in_round = 0  # Initialize action count for betting rounds
         self.winner_declared = False  # To track if winner is declared early (e.g., on fold)
         self.winner = None  # To store the winner when declared early
+        self.ai_game_state = None  # To store the game state for AI agents
 
     def start_new_round(self):
         print("\nStarting a new round.")
@@ -373,3 +374,6 @@ class PokerGame:
                 print("Bets are matched. Moving to next stage.")
                 return True
         return False
+    
+
+    

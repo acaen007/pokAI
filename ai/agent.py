@@ -39,13 +39,11 @@ class PokerAI(Player):
             {'name': 'fold', 'type': 'fold'},
             {'name': 'check', 'type': 'check'},
             {'name': 'call', 'type': 'call'},
-            {'name': 'bet_0.25_pot', 'type': 'bet', 'multiplier': 0.25},
             {'name': 'bet_0.5_pot', 'type': 'bet', 'multiplier': 0.5},
             {'name': 'bet_0.75_pot', 'type': 'bet', 'multiplier': 0.75},
             {'name': 'bet_pot', 'type': 'bet', 'multiplier': 1},
             {'name': 'bet_1.5_pot', 'type': 'bet', 'multiplier': 1.5},
             {'name': 'bet_2_pot', 'type': 'bet', 'multiplier': 2},
-            {'name': 'bet_3_pot', 'type': 'bet', 'multiplier': 3},
             {'name': 'all_in', 'type': 'bet', 'multiplier': None}
         ]
         self.nb = len(self.betting_options)
@@ -107,7 +105,7 @@ class PokerAI(Player):
                     # All legal actions have zero probability, choose randomly
                     action_index = random.choice(legal_actions)
                 else:
-                    policy_probs = policy_probs / total_prob
+                    policy_probs = [p / total_prob for p in policy_probs]
                     action_index = np.random.choice(self.nb, p=policy_probs)
             # Map action index to actual action and amount
             action, amount = self.map_action_index_to_action(action_index, game_state)

@@ -359,7 +359,7 @@ def main():
     # To avoid SSLError:
     #   import urllib3
     #   urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-    num_hands = 100
+    num_hands = 1
     winnings = 0
     for h in range(num_hands):
         (token, hand_winnings) = PlayHand(token)

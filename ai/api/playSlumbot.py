@@ -437,7 +437,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--username', type=str, default=None)
     parser.add_argument('--password', type=str, default=None)
-    parser.add_argument('--num_hands', type=int, default=3)
+    parser.add_argument('--num_hands', type=int, default=2)
     args = parser.parse_args()
     
     token = None

@@ -4,6 +4,11 @@ import argparse
 import random
 import numpy as np
 import urllib3
+import sys
+import os
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 

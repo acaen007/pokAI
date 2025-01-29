@@ -1,14 +1,3 @@
-"""
-File: ai_main.py
-
-Demonstrates a robust Slumbot integration:
- - Logging in (optional)
- - Repeatedly starting new hands
- - Parsing Slumbot's action string with parse_action_enhanced
- - Deciding our action with ChooseActionAI
- - Sending that action to Slumbot via Act()
-"""
-
 import requests
 import sys
 import argparse
@@ -16,9 +5,6 @@ import random
 import numpy as np
 import urllib3
 
-# ------------------------------
-# DISABLE SSL WARNINGS (Optional)
-# ------------------------------
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ------------------------------
@@ -30,11 +16,10 @@ SMALL_BLIND = 50
 BIG_BLIND = 100
 STACK_SIZE = 20000
 
-# =============================================================================
-# 1) SLUMBOT API FUNCTIONS
-#    (Login, NewHand, Act), from your provided sample
-# =============================================================================
 
+# =============================================================================
+# 1) SLUMBOT API
+# =============================================================================
 def Login(username, password):
     data = {"username": username, "password": password}
     response = requests.post(f'https://{host}/api/login', json=data, verify=False)
@@ -57,6 +42,7 @@ def Login(username, password):
         sys.exit(-1)
     return token
 
+
 def NewHand(token):
     data = {}
     if token:
@@ -76,6 +62,7 @@ def NewHand(token):
         sys.exit(-1)
     return r
 
+
 def Act(token, action):
     data = {'token': token, 'incr': action}
     response = requests.post(f'https://{host}/api/act', json=data, verify=False)
@@ -93,16 +80,11 @@ def Act(token, action):
         sys.exit(-1)
     return r
 
-# =============================================================================
-# 2) ROBUST PARSER: parse_action_enhanced
-#    Tracks pot sizes, contributions, etc.
-# =============================================================================
 
+# =============================================================================
+# 2) HELPER: street name
+# =============================================================================
 def get_street_name(st):
-    """
-    Convert street index (0..3) to a human-readable name.
-    0 => Preflop, 1 => Flop, 2 => Turn, 3 => River
-    """
     if st == 0:
         return "Preflop"
     elif st == 1:
@@ -114,45 +96,50 @@ def get_street_name(st):
     return "Showdown"
 
 
+# =============================================================================
+# 3) ENFORCE SB MIN RAISE=200 PREFLOP
+# =============================================================================
 def parse_action_enhanced(action_str: str, client_pos: int):
     """
-    Parses the entire Slumbot action string, tracking:
-      - street (0..3)
-      - pot_total (sum of previous streets)
-      - hero_street, vill_street: how many chips each side contributed THIS street
-      - next_to_act: seat that acts next, or -1 if hand over
-      - error: str if illegal
-      - hand_over: bool
+    HEADS-UP ONLY. seat=0 => posted 100, seat=1 => posted 50, seat=1 acts first preflop, seat=0 acts first postflop.
+    We do NOT raise an error for small raises here. The AI code ensures it won't produce them from seat=1 preflop.
     """
-
     st = 0
     pot_total = 0
-    # If client_pos=0 => we posted big blind=100, villain posted small blind=50 (preflop).
-    # If client_pos=1 => we posted small blind=50, villain posted big blind=100.
-    hero_street = BIG_BLIND if client_pos == 0 else SMALL_BLIND
-    vill_street = SMALL_BLIND if client_pos == 0 else BIG_BLIND
 
-    # Next to act preflop => seat=1 if client_pos=0, else seat=0
-    pos = 1 if client_pos == 0 else 0
+    hero_street = (BIG_BLIND if client_pos == 0 else SMALL_BLIND)
+    vill_street = (SMALL_BLIND  if client_pos == 0 else BIG_BLIND)
 
-    isHandOver = False
+    # seat=1 next preflop
+    pos = 1
+
     error = None
+    isHandOver = False
     i = 0
+
     while i < len(action_str):
         if st >= NUM_STREETS:
             error = f"Exceeded # streets in action: {action_str}"
             break
+
         c = action_str[i]
         i += 1
 
-        # how much hero owes to call?
+        # how many to call
         if client_pos == 0:
-            to_call = vill_street - hero_street if pos == 0 else hero_street - vill_street
+            # hero is seat=0
+            if pos == 0:
+                to_call = vill_street - hero_street
+            else:
+                to_call = hero_street - vill_street
         else:
-            to_call = hero_street - vill_street if pos == 1 else vill_street - hero_street
+            # hero seat=1
+            if pos == 1:
+                to_call = vill_street - hero_street
+            else:
+                to_call = hero_street - vill_street
 
         if c == '/':
-            # street boundary
             pot_total += (hero_street + vill_street)
             hero_street = 0
             vill_street = 0
@@ -161,18 +148,14 @@ def parse_action_enhanced(action_str: str, client_pos: int):
                 pos = -1
                 isHandOver = True
                 break
-            pos = 0 if st > 0 else 1
+            pos = 0  # postflop seat=0 first
             continue
-
         elif c == 'k':
-            # check => must owe 0
             if to_call > 0:
                 error = f"Illegal check: needed to call {to_call}"
                 break
             pos = 1 - pos
-
         elif c == 'c':
-            # call => must owe > 0
             if to_call <= 0:
                 error = "Illegal call: no bet to call"
                 break
@@ -181,47 +164,34 @@ def parse_action_enhanced(action_str: str, client_pos: int):
             else:
                 vill_street += to_call
             pos = 1 - pos
-
         elif c == 'f':
-            # fold => hand ends
             pos = -1
             isHandOver = True
             break
-
         elif c == 'b':
             j = i
             while i < len(action_str) and action_str[i].isdigit():
                 i += 1
             if i == j:
-                error = "Missing bet size"
+                error = "Missing bet size after 'b'"
                 break
             try:
                 new_this_street = int(action_str[j:i])
             except ValueError:
                 error = "Bet size not integer"
                 break
+
             if pos == client_pos:
-                bet_size = new_this_street - hero_street
-                if bet_size < 0:
-                    error = f"Bet size too small {bet_size}"
-                    break
                 hero_street = new_this_street
             else:
-                bet_size = new_this_street - vill_street
-                if bet_size < 0:
-                    error = f"Bet size too small {bet_size}"
-                    break
                 vill_street = new_this_street
             pos = 1 - pos
         else:
             error = f"Unexpected char {c}"
             break
 
-    # end while
-    if not error:
-        if isHandOver or pos == -1:
-            # add final partial street
-            pot_total += (hero_street + vill_street)
+    if not error and (isHandOver or pos == -1):
+        pot_total += (hero_street + vill_street)
 
     return {
         'street': st,
@@ -233,108 +203,77 @@ def parse_action_enhanced(action_str: str, client_pos: int):
         'hand_over': isHandOver or (pos == -1)
     }
 
-
-# =============================================================================
-# 3) AI CODE: ChooseActionAI
-# =============================================================================
-
 def ChooseActionAI(parsed_state, hole_cards, board, client_pos):
     """
-    A simple (toy) AI that picks an action among ['k','c','f','b###'].
-    We interpret the pot size from parsed_state['pot_total'] + each side's street contribution.
-    'to_call' is how many more chips we must invest if we want to call.
-
-    Real logic: you'd do your RL or policy net here.
+    Simple logic:
+      - If it's not our turn => return ''
+      - If there's some bet (to_call>0), we call or fold
+      - If no bet to call => random check or bet
+      - If seat=1 preflop => we might clamp a minimum open, etc. 
     """
     if parsed_state['hand_over']:
-        return ''  # no action, hand ended
-
-    # next_to_act seat
-    seat = parsed_state['next_to_act']
-    if seat == -1:
-        return ''  # hand ended
-    if seat != client_pos:
-        # Not our turn => return empty
         return ''
 
-    # how many chips have we put in vs opponent this street?
+    seat = parsed_state['next_to_act']
+    if seat == -1:
+        return ''
+    if seat != client_pos:
+        return ''
+
     hero_st = parsed_state['hero_street']
     vill_st = parsed_state['vill_street']
-    if client_pos == 0:
-        to_call = vill_st - hero_st
-    else:
-        to_call = hero_st - vill_st
 
-    # base pot
+    print(f"Hero street={hero_st}, Villain street={vill_st}")
+
+    # how many more do we owe if we want to continue?
+    to_call = vill_st - hero_st
+
     pot_so_far = parsed_state['pot_total'] + hero_st + vill_st
-
-    # We'll do a random logic approach:
-    # If there's something to call, we call if it's not huge, else fold.
-    # If no call needed, random check or bet half pot.
-    my_stack = 20000  # ignoring detailed track; we assume full stack for example
+    my_stack = 20000
 
     if to_call > 0:
+        # can't check if we owe chips => must call or fold
         if to_call > my_stack * 0.4:
-            # big bet => fold
-            return 'f'
+            return 'f'  # large portion of stack => fold
         else:
-            # call
-            return 'c'
+            return 'c'  # call
     else:
-        # no bet => either check or small bet
+        # no bet => random check or bet
         if random.random() < 0.5:
             return 'k'
         else:
-            # bet half pot: new total for this street is hero_st + pot_so_far//2
+            # bet half pot
             half_pot = pot_so_far // 2
             new_total = hero_st + half_pot
             if new_total > my_stack:
-                # if that exceeds stack, just call it an allin
                 new_total = my_stack
+
+            # (Optional) if seat=1 preflop => enforce min open=200
+            if parsed_state['street'] == 0 and seat == 1:
+                if new_total < 200:
+                    new_total = 200
+
             return f"b{new_total}"
 
 
-# =============================================================================
-# 4) PLAY HAND: loops until hand ends
-# =============================================================================
 
 def PlayHand(token):
-    """
-    Plays one hand vs Slumbot, printing detailed info:
-     - Street changes
-     - Who bet/raised/called/folded
-     - Pot updates
-     - Stacks at start/end
-    """
-    # Start new hand
     resp = NewHand(token)
     if 'token' in resp:
         token = resp['token']
 
     action_str = resp.get('action','')
-    client_pos = resp.get('client_pos', 0)  # 0=big blind, 1=small blind
+    client_pos = resp.get('client_pos', 0)
     hole_cards = resp.get('hole_cards', [])
     board      = resp.get('board', [])
     winnings   = resp.get('winnings', None)
 
-    # We'll track "hero_stack" and "villain_stack" from the start:
-    hero_stack    = 20000
-    villain_stack = 20000
-
-    # Print blinds info
     print("\n====================================")
     print("NEW HAND STARTED")
-    print(f"Slumbot Token: {token}")
-    print(f"Hero seat={client_pos} -> {'Big Blind' if client_pos==0 else 'Small Blind'}")
-    print(f"Initial Stacks: Hero={hero_stack}, Villain={villain_stack}")
-    print(f"Hole cards: {hole_cards}")
-    print(f"Board: {board if board else 'No board cards yet'}")
-    print(f"Action so far: '{action_str}'")
-
-    last_street_idx = 0
-    last_hero_street = 100 if client_pos==0 else 50
-    last_vill_street = 50 if client_pos==0 else 100
-    pot_total_previous = 0
+    print(f"Token: {token}")
+    print(f"Hero seat={client_pos} => {'Big Blind' if client_pos==0 else 'Small Blind'}")
+    print(f"Hole cards: {hole_cards}, Board: {board if board else 'No board'}")
+    print(f"Initial action: '{action_str}'")
 
     while True:
         if winnings is not None:
@@ -344,115 +283,63 @@ def PlayHand(token):
 
         parsed = parse_action_enhanced(action_str, client_pos)
         if parsed['error']:
-            print(f"Parse error: {parsed['error']}")
+            print("Error:", parsed['error'])
             print("====================================\n")
             return token, 0
-        
-        # Street name
-        st_name = get_street_name(parsed['street'])
-        if parsed['street'] != last_street_idx:
-            # We moved to a new street
-            print(f"\n--- Moving to {st_name} ---")
-            last_street_idx = parsed['street']
-        
-        # Recompute the difference in each seat's street contribution => that might be new bets
-        hero_delta = parsed['hero_street'] - last_hero_street
-        vill_delta = parsed['vill_street'] - last_vill_street
 
-        # If hero_delta>0 => hero bet or called
-        # If vill_delta>0 => villain bet or called
-        # If hero_delta < 0 => error, etc. We'll keep it simple:
-        if hero_delta > 0:
-            # hero added money
-            if hero_delta == 0:
-                pass
-            else:
-                print(f"Hero put in {hero_delta} more chips on {st_name}.")
-
-        if vill_delta > 0:
-            print(f"Villain put in {vill_delta} more chips on {st_name}.")
-
-        # Next to act
-        seat_act = parsed['next_to_act']
-        if seat_act == -1 and parsed['hand_over']:
-            # Hand ended
-            # pot_total includes the final street's sum
-            print("\n--- Hand Over Detected ---")
-            final_pot = parsed['pot_total']
-            print(f"Final pot: {final_pot}")
-            # compute final stacks (if we wanted)
-            print("No further actions possible.")
-        
-        # update stacks:
-        # The total in hero_street is how many chips hero has put in on this street => difference from last time is how many we lost from stack
-        hero_stack    -= max(0, hero_delta)
-        villain_stack -= max(0, vill_delta)
-
-        # store these for next iteration
-        last_hero_street = parsed['hero_street']
-        last_vill_street = parsed['vill_street']
-        pot_total_previous = parsed['pot_total']
-
-        if resp.get('winnings') is not None or parsed['hand_over']:
-            # hand ended
+        if parsed['hand_over']:
             final_win = resp.get('winnings', 0)
-            if final_win is not None:
-                print(f"** Hand finished, hero's winnings = {final_win}")
-                hero_stack += final_win  # if positive => we gained that
-                print(f"** Updated hero stack: {hero_stack}, villain stack: {villain_stack}")
-            else:
-                print("** Hand finished, no 'winnings' in response??")
+            print(f"Hand Over => pot={parsed['pot_total']}, winnings={final_win}")
             print("====================================\n")
-            return token, final_win if final_win is not None else 0
+            return token, final_win
 
-        # Otherwise, we choose an action
-        print(f"\nStreet: {st_name}, next_to_act = {parsed['next_to_act']}")
-        ai_incr = ChooseActionAI(parsed, hole_cards, board, client_pos)
-        if not ai_incr:
-            # means it's not our turn or we do nothing
-            print("No action from hero, possibly Slumbot's turn.")
+        if 'winnings' in resp and resp['winnings'] is not None:
+            w = resp['winnings']
+            print(f"Slumbot indicates hand ended => w={w}")
+            print("====================================\n")
+            return token, w
+
+        seat_to_act = parsed['next_to_act']
+        street_name = get_street_name(parsed['street'])
+        print(f"\nStreet: {street_name}, next_to_act={seat_to_act}, action so far='{action_str}'")
+
+        ai_move = ChooseActionAI(parsed, hole_cards, board, client_pos)
+        if not ai_move:
+            print("No action from hero => presumably Slumbot's turn or hand ended.")
+            print("Exiting. The hand might continue from Slumbot's perspective.")
             print("====================================\n")
             return token, 0
 
-        print(f"Hero's incremental action: '{ai_incr}'")
-        resp = Act(token, ai_incr)
-        action_str = resp.get('action','')
-        board = resp.get('board', board)
+        print(f"Hero's action => '{ai_move}'")
+        resp = Act(token, ai_move)
         new_token = resp.get('token', token)
         if new_token:
             token = new_token
-        winnings = resp.get('winnings', None)
 
-        # Print updated info
-        print(f"Updated action string => '{action_str}'")
-        if resp.get('board'):
-            print(f"Board => {resp['board']}")
-
+        action_str = resp.get('action','')
+        board      = resp.get('board', board)
+        winnings   = resp.get('winnings', None)
+        print(f"Updated action => '{action_str}', Board={board if board else 'No board'}")
 
 
-# =============================================================================
-# 5) MAIN: log in, play multiple hands
-# =============================================================================
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--username', type=str, default=None)
-    parser.add_argument('--password', type=str, default=None)
-    parser.add_argument('--num_hands', type=int, default=2)
+    parser.add_argument('--username', type=str)
+    parser.add_argument('--password', type=str)
+    parser.add_argument('--num_hands', type=int, default=5)
     args = parser.parse_args()
-    
+
     token = None
     if args.username and args.password:
         token = Login(args.username, args.password)
-    
+
     total_winnings = 0
     for h in range(args.num_hands):
-        print(f"\nPlaying hand #{h+1} ...")
+        print(f"\n=== Playing hand #{h+1} ===")
         token, w = PlayHand(token)
         total_winnings += (w or 0)
-    
-    print(f"\nDone! After {args.num_hands} hands, total winnings: {total_winnings}")
 
-
+    print(f"\nDONE. total_winnings={total_winnings}")
 
 if __name__ == '__main__':
     main()

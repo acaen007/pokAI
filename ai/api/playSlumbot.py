@@ -1,342 +1,41 @@
-# The API utilizes HTTP POST requests.  Requests and responses have a JSON body.
-# There are three endpoints:
-#   /api/login
-#   /api/new_hand
-#   /api/act
-# To initiate a new hand, send a request to /api/new_hand.  To take an action, send a
-# request to /api/act.
-#
-# The body of a sample request to /api/new_hand:
-#   {"token": "a2f42f44-7ff6-40dd-906b-4c2f03fcee57"}
-# The body of a sample request to /api/act:
-#   {"token": "a2f42f44-7ff6-40dd-906b-4c2f03fcee57", "incr": "c"}
-#
-# A sample response from /api/new_hand or /api/act:
-#   {'old_action': '', 'action': 'b200', 'client_pos': 0, 'hole_cards': ['Ac', '9d'], 'board': [], 'token': 'a2f42f44-7ff6-40dd-906b-4c2f03fcee57'}
-#
-# Note that if the bot is first to act, then the response to /api/new_hand will contain the
-# bot's initial action.
-#
-# A token should be passed into every request.  With the exception that on the initial request to
-# /api/new_hand, the token may be missing.  But all subsequent requests should contain a token.
-# The token can in theory change over the course of a session (usually only if there is a long
-# pause) so always check if there is a new token in a response and use it going forward.
-#
-# A client_pos of 0 indicates that you are the big blind (second to act preflop, first to act
-# postflop).  1 indicates you are the small blind.
-#
-# Sample action that you might get in a response looks like this:
-#   b200c/kk/kk/kb200
-# An all-in can contain streets with no action.  For example:
-#   b20000c///
-#
-# "k" indicates "check", "c" indicates "call", "f" indicates "fold" and "b" indicates "bet"
-# (either an initial bet or a raise).
-#
-# Bet sizes are the number of chips that the player has put into the pot *on that street* (only).
-# Consider this action:
-#
-#   b200c/kb400
-#
-# The flop bet here is a pot-size bet to 400 because there are 400 chips in the pot after the
-# preflop action.  If the bet is called, then each player will have put a total of 600 chips into
-# the pot counting both the preflop and the flop.
-# 
-# Slumbot plays with blinds of 50 and 100 and a stack size of 200 BB (20,000 chips).  The stacks
-# reset after each hand.
-
 import requests
 import sys
 import argparse
+import random
+import numpy as np
+import urllib3
 
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# ------------------------------
+# SLUMBOT CONSTANTS
+# ------------------------------
 host = 'slumbot.com'
-
 NUM_STREETS = 4
 SMALL_BLIND = 50
 BIG_BLIND = 100
 STACK_SIZE = 20000
 
-def ParseAction(action):
-    """
-    Returns a dict with information about the action passed in.
-    Returns a key "error" if there was a problem parsing the action.
-    pos is returned as -1 if the hand is over; otherwise the position of the player next to act.
-    street_last_bet_to only counts chips bet on this street, total_last_bet_to counts all
-      chips put into the pot.
-    Handles action with or without a final '/'; e.g., "ck" or "ck/".
-    """
-    st = 0
-    street_last_bet_to = BIG_BLIND
-    total_last_bet_to = BIG_BLIND
-    last_bet_size = BIG_BLIND - SMALL_BLIND
-    last_bettor = 0
-    sz = len(action)
-    pos = 1
-    if sz == 0:
-        return {
-            'st': st,
-            'pos': pos,
-            'street_last_bet_to': street_last_bet_to,
-            'total_last_bet_to': total_last_bet_to,
-            'last_bet_size': last_bet_size,
-            'last_bettor': last_bettor,
-        }
 
-    check_or_call_ends_street = False
-    i = 0
-    while i < sz:
-        if st >= NUM_STREETS:
-            return {'error': 'Unexpected error'}
-        c = action[i]
-        i += 1
-        if c == 'k':
-            if last_bet_size > 0:
-                return {'error': 'Illegal check'}
-            if check_or_call_ends_street:
-	        # After a check that ends a pre-river street, expect either a '/' or end of string.
-                if st < NUM_STREETS - 1 and i < sz:
-                    if action[i] != '/':
-                        return {'error': 'Missing slash'}
-                    i += 1
-                if st == NUM_STREETS - 1:
-	            # Reached showdown
-                    pos = -1
-                else:
-                    pos = 0
-                    st += 1
-                street_last_bet_to = 0
-                check_or_call_ends_street = False
-            else:
-                pos = (pos + 1) % 2
-                check_or_call_ends_street = True
-        elif c == 'c':
-            if last_bet_size == 0:
-                return {'error': 'Illegal call'}
-            if total_last_bet_to == STACK_SIZE:
-	        # Call of an all-in bet
-	        # Either allow no slashes, or slashes terminating all streets prior to the river.
-                if i != sz:
-                    for st1 in range(st, NUM_STREETS - 1):
-                        if i == sz:
-                            return {'error': 'Missing slash (end of string)'}
-                        else:
-                            c = action[i]
-                            i += 1
-                            if c != '/':
-                                return {'error': 'Missing slash'}
-                if i != sz:
-                    return {'error': 'Extra characters at end of action'}
-                st = NUM_STREETS - 1
-                pos = -1
-                last_bet_size = 0
-                return {
-                    'st': st,
-                    'pos': pos,
-                    'street_last_bet_to': street_last_bet_to,
-                    'total_last_bet_to': total_last_bet_to,
-                    'last_bet_size': last_bet_size,
-                    'last_bettor': last_bettor,
-                }
-            if check_or_call_ends_street:
-	        # After a call that ends a pre-river street, expect either a '/' or end of string.
-                if st < NUM_STREETS - 1 and i < sz:
-                    if action[i] != '/':
-                        return {'error': 'Missing slash'}
-                    i += 1
-                if st == NUM_STREETS - 1:
-	            # Reached showdown
-                    pos = -1
-                else:
-                    pos = 0
-                    st += 1
-                street_last_bet_to = 0
-                check_or_call_ends_street = False
-            else:
-                pos = (pos + 1) % 2
-                check_or_call_ends_street = True
-            last_bet_size = 0
-            last_bettor = -1
-        elif c == 'f':
-            if last_bet_size == 0:
-                return {'error', 'Illegal fold'}
-            if i != sz:
-                return {'error': 'Extra characters at end of action'}
-            pos = -1
-            return {
-                'st': st,
-                'pos': pos,
-                'street_last_bet_to': street_last_bet_to,
-                'total_last_bet_to': total_last_bet_to,
-                'last_bet_size': last_bet_size,
-                'last_bettor': last_bettor,
-            }
-        elif c == 'b':
-            j = i
-            while i < sz and action[i] >= '0' and action[i] <= '9':
-                i += 1
-            if i == j:
-                return {'error': 'Missing bet size'}
-            try:
-                new_street_last_bet_to = int(action[j:i])
-            except (TypeError, ValueError):
-                return {'error': 'Bet size not an integer'}
-            new_last_bet_size = new_street_last_bet_to - street_last_bet_to
-            # Validate that the bet is legal
-            remaining = STACK_SIZE - total_last_bet_to
-            if last_bet_size > 0:
-                min_bet_size = last_bet_size
-	        # Make sure minimum opening bet is the size of the big blind.
-                if min_bet_size < BIG_BLIND:
-                    min_bet_size = BIG_BLIND
-            else:
-                min_bet_size = BIG_BLIND
-            # Can always go all-in
-            if min_bet_size > remaining:
-                min_bet_size = remaining
-            if new_last_bet_size < min_bet_size:
-                return {'error': 'Bet too small'}
-            max_bet_size = remaining
-            if new_last_bet_size > max_bet_size:
-                return {'error': 'Bet too big'}
-            last_bet_size = new_last_bet_size
-            street_last_bet_to = new_street_last_bet_to
-            total_last_bet_to += last_bet_size
-            last_bettor = pos
-            pos = (pos + 1) % 2
-            check_or_call_ends_street = True
-        else:
-            return {'error': 'Unexpected character in action'}
-
-    return {
-        'st': st,
-        'pos': pos,
-        'street_last_bet_to': street_last_bet_to,
-        'total_last_bet_to': total_last_bet_to,
-        'last_bet_size': last_bet_size,
-        'last_bettor': last_bettor,
-    }
-
-
-def NewHand(token):
-    data = {}
-    if token:
-        data['token'] = token
-    # Use verify=false to avoid SSL Error
-    # If porting this code to another language, make sure that the Content-Type header is
-    # set to application/json.
-    response = requests.post(f'https://{host}/api/new_hand', headers={}, json=data)
-    success = getattr(response, 'status_code') == 200
-    if not success:
-        print('Status code: %s' % repr(response.status_code))
-        try:
-            print('Error response: %s' % repr(response.json()))
-        except ValueError:
-            pass
-        sys.exit(-1)
-
-    try:
-        r = response.json()
-    except ValueError:
-        print('Could not get JSON from response')
-        sys.exit(-1)
-
-    if 'error_msg' in r:
-        print('Error: %s' % r['error_msg'])
-        sys.exit(-1)
-        
-    return r
-
-
-def Act(token, action):
-    data = {'token': token, 'incr': action}
-    # Use verify=false to avoid SSL Error
-    # If porting this code to another language, make sure that the Content-Type header is
-    # set to application/json.
-    response = requests.post(f'https://{host}/api/act', headers={}, json=data)
-    success = getattr(response, 'status_code') == 200
-    if not success:
-        print('Status code: %s' % repr(response.status_code))
-        try:
-            print('Error response: %s' % repr(response.json()))
-        except ValueError:
-            pass
-        sys.exit(-1)
-
-    try:
-        r = response.json()
-    except ValueError:
-        print('Could not get JSON from response')
-        sys.exit(-1)
-
-    if 'error_msg' in r:
-        print('Error: %s' % r['error_msg'])
-        sys.exit(-1)
-        
-    return r
-    
-#EDIT THIS FUNCTION TO START PLAYING SLUMBOT
-def PlayHand(token):
-    r = NewHand(token)
-    # We may get a new token back from /api/new_hand
-    new_token = r.get('token')
-    if new_token:
-        token = new_token
-    print('Token: %s' % token)
-    while True:
-        print('-----------------')
-        print(repr(r))
-        action = r.get('action')
-        client_pos = r.get('client_pos')
-        hole_cards = r.get('hole_cards')
-        board = r.get('board')
-        winnings = r.get('winnings')
-        print('Action: %s' % action)
-        if client_pos:
-            print('Client pos: %i' % client_pos)
-        print('Client hole cards: %s' % repr(hole_cards))
-        print('Board: %s' % repr(board))
-        if winnings is not None:
-            print('Hand winnings: %i' % winnings)
-            return (token, winnings)
-        # Need to check or call
-        a = ParseAction(action)
-        if 'error' in a:
-            print('Error parsing action %s: %s' % (action, a['error']))
-            sys.exit(-1)
-        # This sample program implements a naive strategy of "always check or call".
-        if a['last_bettor'] != -1:
-            incr = 'c'
-        else:
-            incr = 'k'
-        print('Sending incremental action: %s' % incr)
-        r = Act(token, incr)
-    # Should never get here
-
-        
+# =============================================================================
+# 1) SLUMBOT API
+# =============================================================================
 def Login(username, password):
     data = {"username": username, "password": password}
-    # If porting this code to another language, make sure that the Content-Type header is
-    # set to application/json.
-    response = requests.post(f'https://{host}/api/login', json=data)
-    success = getattr(response, 'status_code') == 200
-    if not success:
-        print('Status code: %s' % repr(response.status_code))
+    response = requests.post(f'https://{host}/api/login', json=data, verify=False)
+    if response.status_code != 200:
+        print('Status code:', response.status_code)
         try:
-            print('Error response: %s' % repr(response.json()))
+            print('Error response:', response.json())
         except ValueError:
             pass
         sys.exit(-1)
 
-    try:
-        r = response.json()
-    except ValueError:
-        print('Could not get JSON from response')
+    r = response.json()
+    if 'error_msg' in r:
+        print('Error:', r['error_msg'])
         sys.exit(-1)
 
-    if 'error_msg' in r:
-        print('Error: %s' % r['error_msg'])
-        sys.exit(-1)
-        
     token = r.get('token')
     if not token:
         print('Did not get token in response to /api/login')
@@ -344,28 +43,303 @@ def Login(username, password):
     return token
 
 
+def NewHand(token):
+    data = {}
+    if token:
+        data['token'] = token
+    response = requests.post(f'https://{host}/api/new_hand', json=data, verify=False)
+    if response.status_code != 200:
+        print('Status code:', response.status_code)
+        try:
+            print('Error response:', response.json())
+        except ValueError:
+            pass
+        sys.exit(-1)
+
+    r = response.json()
+    if 'error_msg' in r:
+        print('Error:', r['error_msg'])
+        sys.exit(-1)
+    return r
+
+
+def Act(token, action):
+    data = {'token': token, 'incr': action}
+    response = requests.post(f'https://{host}/api/act', json=data, verify=False)
+    if response.status_code != 200:
+        print('Status code:', response.status_code)
+        try:
+            print('Error response:', response.json())
+        except ValueError:
+            pass
+        sys.exit(-1)
+
+    r = response.json()
+    if 'error_msg' in r:
+        print('Error:', r['error_msg'])
+        sys.exit(-1)
+    return r
+
+
+# =============================================================================
+# 2) HELPER: street name
+# =============================================================================
+def get_street_name(st):
+    if st == 0:
+        return "Preflop"
+    elif st == 1:
+        return "Flop"
+    elif st == 2:
+        return "Turn"
+    elif st == 3:
+        return "River"
+    return "Showdown"
+
+
+# =============================================================================
+# 3) ENFORCE SB MIN RAISE=200 PREFLOP
+# =============================================================================
+def parse_action_enhanced(action_str: str, client_pos: int):
+    """
+    HEADS-UP ONLY. seat=0 => posted 100, seat=1 => posted 50, seat=1 acts first preflop, seat=0 acts first postflop.
+    We do NOT raise an error for small raises here. The AI code ensures it won't produce them from seat=1 preflop.
+    """
+    st = 0
+    pot_total = 0
+
+    hero_street = (BIG_BLIND if client_pos == 0 else SMALL_BLIND)
+    vill_street = (SMALL_BLIND  if client_pos == 0 else BIG_BLIND)
+
+    # seat=1 next preflop
+    pos = 1
+
+    error = None
+    isHandOver = False
+    i = 0
+
+    while i < len(action_str):
+        if st >= NUM_STREETS:
+            error = f"Exceeded # streets in action: {action_str}"
+            break
+
+        c = action_str[i]
+        i += 1
+
+        # how many to call
+        if client_pos == 0:
+            # hero is seat=0
+            if pos == 0:
+                to_call = vill_street - hero_street
+            else:
+                to_call = hero_street - vill_street
+        else:
+            # hero seat=1
+            if pos == 1:
+                to_call = vill_street - hero_street
+            else:
+                to_call = hero_street - vill_street
+
+        if c == '/':
+            pot_total += (hero_street + vill_street)
+            hero_street = 0
+            vill_street = 0
+            st += 1
+            if st >= NUM_STREETS:
+                pos = -1
+                isHandOver = True
+                break
+            pos = 0  # postflop seat=0 first
+            continue
+        elif c == 'k':
+            if to_call > 0:
+                error = f"Illegal check: needed to call {to_call}"
+                break
+            pos = 1 - pos
+        elif c == 'c':
+            if to_call <= 0:
+                error = "Illegal call: no bet to call"
+                break
+            if pos == client_pos:
+                hero_street += to_call
+            else:
+                vill_street += to_call
+            pos = 1 - pos
+        elif c == 'f':
+            pos = -1
+            isHandOver = True
+            break
+        elif c == 'b':
+            j = i
+            while i < len(action_str) and action_str[i].isdigit():
+                i += 1
+            if i == j:
+                error = "Missing bet size after 'b'"
+                break
+            try:
+                new_this_street = int(action_str[j:i])
+            except ValueError:
+                error = "Bet size not integer"
+                break
+
+            if pos == client_pos:
+                hero_street = new_this_street
+            else:
+                vill_street = new_this_street
+            pos = 1 - pos
+        else:
+            error = f"Unexpected char {c}"
+            break
+
+    if not error and (isHandOver or pos == -1):
+        pot_total += (hero_street + vill_street)
+
+    return {
+        'street': st,
+        'pot_total': pot_total,
+        'hero_street': hero_street,
+        'vill_street': vill_street,
+        'next_to_act': pos,
+        'error': error,
+        'hand_over': isHandOver or (pos == -1)
+    }
+
+def ChooseActionAI(parsed_state, hole_cards, board, client_pos):
+    """
+    Simple logic:
+      - If it's not our turn => return ''
+      - If there's some bet (to_call>0), we call or fold
+      - If no bet to call => random check or bet
+      - If seat=1 preflop => we might clamp a minimum open, etc. 
+    """
+    if parsed_state['hand_over']:
+        return ''
+
+    seat = parsed_state['next_to_act']
+    if seat == -1:
+        return ''
+    if seat != client_pos:
+        return ''
+
+    hero_st = parsed_state['hero_street']
+    vill_st = parsed_state['vill_street']
+
+    print(f"Hero street={hero_st}, Villain street={vill_st}")
+
+    # how many more do we owe if we want to continue?
+    to_call = vill_st - hero_st
+
+    pot_so_far = parsed_state['pot_total'] + hero_st + vill_st
+    my_stack = 20000
+
+    if to_call > 0:
+        # can't check if we owe chips => must call or fold
+        if to_call > my_stack * 0.4:
+            return 'f'  # large portion of stack => fold
+        else:
+            return 'c'  # call
+    else:
+        # no bet => random check or bet
+        if random.random() < 0.5:
+            return 'k'
+        else:
+            # bet half pot
+            half_pot = pot_so_far // 2
+            new_total = hero_st + half_pot
+            if new_total > my_stack:
+                new_total = my_stack
+
+            # (Optional) if seat=1 preflop => enforce min open=200
+            if parsed_state['street'] == 0 and seat == 1:
+                if new_total < 200:
+                    new_total = 200
+
+            return f"b{new_total}"
+
+
+
+def PlayHand(token):
+    resp = NewHand(token)
+    if 'token' in resp:
+        token = resp['token']
+
+    action_str = resp.get('action','')
+    client_pos = resp.get('client_pos', 0)
+    hole_cards = resp.get('hole_cards', [])
+    board      = resp.get('board', [])
+    winnings   = resp.get('winnings', None)
+
+    print("\n====================================")
+    print("NEW HAND STARTED")
+    print(f"Token: {token}")
+    print(f"Hero seat={client_pos} => {'Big Blind' if client_pos==0 else 'Small Blind'}")
+    print(f"Hole cards: {hole_cards}, Board: {board if board else 'No board'}")
+    print(f"Initial action: '{action_str}'")
+
+    while True:
+        if winnings is not None:
+            print(f"Hand ended immediately, winnings={winnings}")
+            print("====================================\n")
+            return token, winnings
+
+        parsed = parse_action_enhanced(action_str, client_pos)
+        if parsed['error']:
+            print("Error:", parsed['error'])
+            print("====================================\n")
+            return token, 0
+
+        if parsed['hand_over']:
+            final_win = resp.get('winnings', 0)
+            print(f"Hand Over => pot={parsed['pot_total']}, winnings={final_win}")
+            print("====================================\n")
+            return token, final_win
+
+        if 'winnings' in resp and resp['winnings'] is not None:
+            w = resp['winnings']
+            print(f"Slumbot indicates hand ended => w={w}")
+            print("====================================\n")
+            return token, w
+
+        seat_to_act = parsed['next_to_act']
+        street_name = get_street_name(parsed['street'])
+        print(f"\nStreet: {street_name}, next_to_act={seat_to_act}, action so far='{action_str}'")
+
+        ai_move = ChooseActionAI(parsed, hole_cards, board, client_pos)
+        if not ai_move:
+            print("No action from hero => presumably Slumbot's turn or hand ended.")
+            print("Exiting. The hand might continue from Slumbot's perspective.")
+            print("====================================\n")
+            return token, 0
+
+        print(f"Hero's action => '{ai_move}'")
+        resp = Act(token, ai_move)
+        new_token = resp.get('token', token)
+        if new_token:
+            token = new_token
+
+        action_str = resp.get('action','')
+        board      = resp.get('board', board)
+        winnings   = resp.get('winnings', None)
+        print(f"Updated action => '{action_str}', Board={board if board else 'No board'}")
+
+
 def main():
-    parser = argparse.ArgumentParser(description='Slumbot API example')
+    parser = argparse.ArgumentParser()
     parser.add_argument('--username', type=str)
     parser.add_argument('--password', type=str)
+    parser.add_argument('--num_hands', type=int, default=5)
     args = parser.parse_args()
-    username = args.username
-    password = args.password
-    if username and password:
-        token = Login(username, password)
-    else:
-        token = None
 
-    # To avoid SSLError:
-    #   import urllib3
-    #   urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-    num_hands = 100
-    winnings = 0
-    for h in range(num_hands):
-        (token, hand_winnings) = PlayHand(token)
-        winnings += hand_winnings
-    print('Total winnings: %i' % winnings)
+    token = None
+    if args.username and args.password:
+        token = Login(args.username, args.password)
 
-    
+    total_winnings = 0
+    for h in range(args.num_hands):
+        print(f"\n=== Playing hand #{h+1} ===")
+        token, w = PlayHand(token)
+        total_winnings += (w or 0)
+
+    print(f"\nDONE. total_winnings={total_winnings}")
+
 if __name__ == '__main__':
     main()

@@ -42,7 +42,7 @@ def r_gamma(rewards: np.ndarray, gamma: float) -> float:
 # 3) ADVANTAGE ESTIMATION (a_gae)
 ##################################################
 
-def a_gae(results, states, value_function_fn, gamma=0.999, lambda_=0.99):
+def a_gae_old(results, states, value_function_fn, gamma=0.999, lambda_=0.99):
     """
     A single-scalar GAE, as in your original code:
       - len(states) == len(results)
@@ -57,6 +57,29 @@ def a_gae(results, states, value_function_fn, gamma=0.999, lambda_=0.99):
     S = np.zeros(N+1, dtype=float)
     for i in range(N):
         S[i+1] = S[i] + (gamma ** i) * results[i]
+    
+    gae_sum = 0.0
+    for k in range(1, N):
+        a_k = -v0 + S[k] + (gamma ** k) * value_function_fn(states[k])
+        gae_sum += (lambda_ ** (k - 1)) * a_k
+    return (1 - lambda_) * gae_sum
+
+def a_gae(states, value_function_fn, gamma=0.999, lambda_=0.99):
+    """
+    A single-scalar GAE, as in your original code:
+      - len(states) == len(results)
+      - We do NOT assume an extra 'terminal state' 
+    """
+    rewards = states["reward"]
+    N = len(states)
+    if N == 0:
+        return 0.0
+    
+    v0 = value_function_fn(states[0])
+    # partial sums S[k] = Σ_{i=0..k-1} gamma^i * results[i]
+    S = np.zeros(N+1, dtype=float)
+    for i in range(N):
+        S[i+1] = S[i] + (gamma ** i) * rewards[i]
     
     gae_sum = 0.0
     for k in range(1, N):
@@ -103,24 +126,6 @@ def v_loss(r_gamma_val: float, state, deltas: tuple, value_function_fn=None):
 # 6) GET DELTAS / GET ACTION (utilities)
 ##################################################
 
-def get_deltas(state):
-    """
-    Return (delta1, delta2, delta3) for the given street
-    in the trinal-clip PPO approach.
-    """
-    delta1 = 3
-    if state == 'Preflop':
-        delta2, delta3 = 20, 10
-    elif state == 'Flop':
-        delta2, delta3 = 40, 20
-    elif state == 'Turn':
-        delta2, delta3 = 120, 80
-    elif state == 'River':
-        delta2, delta3 = 120, 120
-    else:
-        delta2, delta3 = 10, 10
-    return (delta1, delta2, delta3)
-
 
 def get_action_from_probs(probs: np.ndarray) -> int:
     """
@@ -159,3 +164,37 @@ def make_model_value_function(model, build_card_rep_fn, build_action_rep_fn):
         return val_out.item()
     
     return value_function_impl
+
+
+def make_model_value_function(model, build_card_rep_fn, build_action_rep_fn):
+    """
+    Returns a function 'value_fn(state)' that uses the siamese model
+    to compute a scalar value for the given 'state'.
+
+    build_card_rep_fn(state): -> CardRepresentation
+    build_action_rep_fn(state): -> ActionRepresentation
+
+    In real code, you might store the full environment state for each timestep
+    so you don't have to guess how to rebuild reps from 'state'.
+    """
+    def value_function_impl(state):
+
+        # Convert to torch
+        card_np = state['card_tensor']
+        action_np = state['action_tensor']
+        card_t = torch.from_numpy(card_np).float()
+        action_t = torch.from_numpy(action_np).float()
+
+        with torch.no_grad():
+            _, val_out = model(action_t, card_t)
+        return val_out.item()
+    
+    return value_function_impl
+
+def value_function(model, state):
+    card_np = state['card_tensor']
+    action_np = state['action_tensor']
+    card_t = torch.from_numpy(card_np).float()
+    action_t = torch.from_numpy(action_np).float()
+    _, val_out = model(action_t, card_t) # I dont think we need to use no_grad here. We want to update the model at some point
+    return val_out.item()

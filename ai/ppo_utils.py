@@ -32,7 +32,6 @@ def r_gamma(rewards: np.ndarray, gamma: float) -> float:
     # Reverse except the first element
     for reward in rewards[:0:-1]:
         r_val = gamma * (r_val + reward)
-        print("reward:", reward)
     if len(rewards) > 0:
         r_val += rewards[0]
     return r_val
@@ -64,18 +63,18 @@ def a_gae_old(results, states, value_function_fn, gamma=0.999, lambda_=0.99):
         gae_sum += (lambda_ ** (k - 1)) * a_k
     return (1 - lambda_) * gae_sum
 
-def a_gae(states, value_function_fn, gamma=0.999, lambda_=0.99):
+def a_gae(states, rewards, value_function_fn, gamma=0.999, lambda_=0.99):
     """
     A single-scalar GAE, as in your original code:
       - len(states) == len(results)
       - We do NOT assume an extra 'terminal state' 
     """
-    rewards = states["reward"]
+
     N = len(states)
     if N == 0:
         return 0.0
     
-    v0 = value_function_fn(states[0])
+    v0 = value_function_fn(states[0]).item()
     # partial sums S[k] = Σ_{i=0..k-1} gamma^i * results[i]
     S = np.zeros(N+1, dtype=float)
     for i in range(N):
@@ -83,7 +82,7 @@ def a_gae(states, value_function_fn, gamma=0.999, lambda_=0.99):
     
     gae_sum = 0.0
     for k in range(1, N):
-        a_k = -v0 + S[k] + (gamma ** k) * value_function_fn(states[k])
+        a_k = -v0 + S[k] + (gamma ** k) * value_function_fn(states[k]).item()
         gae_sum += (lambda_ ** (k - 1)) * a_k
     return (1 - lambda_) * gae_sum
 
@@ -108,18 +107,15 @@ def tc_loss_function(ratio_val: float, advantage: float, epsilon: float, deltas:
 # 5) CLIPPED VALUE LOSS
 ##################################################
 
-def v_loss(r_gamma_val: float, state, deltas: tuple, value_function_fn=None):
+def v_loss(r_gamma_val: float, state, deltas: tuple, value_state):
     """
     (clip(r_gamma_val,-delta2,delta3) - V(state))^2
     If no value_function_fn is provided, defaults to 0 (legacy).
     """
     # For backward compatibility, fallback to 0 if not provided
-    baseline_val = 0.0
-    if value_function_fn is not None:
-        baseline_val = value_function_fn(state)
     
     clipped_ret = np.clip(r_gamma_val, -deltas[1], deltas[2])
-    return (clipped_ret - baseline_val)**2
+    return (clipped_ret - value_state)**2
 
 
 ##################################################
@@ -138,7 +134,7 @@ def get_action_from_probs(probs: np.ndarray) -> int:
 # 7) MODEL-BASED VALUE FUNCTION CREATOR
 ##############################################################
 
-def make_model_value_function(model, build_card_rep_fn, build_action_rep_fn):
+def make_model_value_function_old(model, build_card_rep_fn, build_action_rep_fn):
     """
     Returns a function 'value_fn(state)' that uses the siamese model
     to compute a scalar value for the given 'state'.
@@ -166,7 +162,7 @@ def make_model_value_function(model, build_card_rep_fn, build_action_rep_fn):
     return value_function_impl
 
 
-def make_model_value_function(model, build_card_rep_fn, build_action_rep_fn):
+def make_model_value_function(model):
     """
     Returns a function 'value_fn(state)' that uses the siamese model
     to compute a scalar value for the given 'state'.
@@ -177,24 +173,25 @@ def make_model_value_function(model, build_card_rep_fn, build_action_rep_fn):
     In real code, you might store the full environment state for each timestep
     so you don't have to guess how to rebuild reps from 'state'.
     """
-    def value_function_impl(state):
+    # def value_function_impl(state):
 
-        # Convert to torch
-        card_np = state['card_tensor']
-        action_np = state['action_tensor']
+    #     # Convert to torch
+    #     card_np = state['card_tensor']
+    #     action_np = state['action_tensor']
+    #     card_t = torch.from_numpy(card_np).float()
+    #     action_t = torch.from_numpy(action_np).float()
+
+    #     with torch.no_grad():
+    #         _, val_out = model(action_t, card_t)
+    #     return val_out.item()
+    
+    def value_function_impl(state):
+        card_np = state[0][np.newaxis,...]
+        action_np = state[1][np.newaxis,...]
         card_t = torch.from_numpy(card_np).float()
         action_t = torch.from_numpy(action_np).float()
-
-        with torch.no_grad():
-            _, val_out = model(action_t, card_t)
-        return val_out.item()
+        _, val_out = model.forward(action_t, card_t) # I dont think we need to use no_grad here. We want to update the model at some point
+        return val_out # I return the tensor for doing backpropagation later. I think is the only way.
     
     return value_function_impl
 
-def value_function(model, state):
-    card_np = state['card_tensor']
-    action_np = state['action_tensor']
-    card_t = torch.from_numpy(card_np).float()
-    action_t = torch.from_numpy(action_np).float()
-    _, val_out = model(action_t, card_t) # I dont think we need to use no_grad here. We want to update the model at some point
-    return val_out.item()

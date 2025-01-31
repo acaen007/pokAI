@@ -149,7 +149,7 @@ def run_one_iteration(iter_idx: int, old_policy_net: PseudoSiameseNet, new_polic
         # 8) value loss
         #    compute r_gamma from future rewards
         r_g = r_gamma(np.array(future_rewards), gamma=0.999)
-        val_loss_val = v_loss(r_g, st, deltas, value_function_fn=model_value_func)
+        val_loss_val = v_loss(r_g, st, deltas, value_state=model_value_func)
 
         # 9) build a toy combined loss => do a gradient update
         #   - incorporate pol_loss_val and val_loss_val into the PyTorch graph 

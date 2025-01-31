@@ -267,11 +267,11 @@ def PlayHand(token):
     if 'token' in resp:
         token = resp['token']
 
-    action_str = resp.get('action','')
+    action_str = resp.get('action', '')
     client_pos = resp.get('client_pos', 0)
     hole_cards = resp.get('hole_cards', [])
-    board      = resp.get('board', [])
-    winnings   = resp.get('winnings', None)
+    board = resp.get('board', [])
+    winnings = resp.get('winnings', None)
 
     print("\n====================================")
     print("NEW HAND STARTED")
@@ -284,25 +284,29 @@ def PlayHand(token):
         if winnings is not None:
             print(f"Hand ended immediately, winnings={winnings}")
             print("====================================\n")
-            return token, winnings
+            final_action = action_str
+            return token, winnings, final_action, hole_cards, board, client_pos
 
         parsed = parse_action_enhanced(action_str, client_pos)
         if parsed['error']:
             print("Error:", parsed['error'])
             print("====================================\n")
-            return token, 0
+            final_action = action_str
+            return token, 0, final_action, hole_cards, board, client_pos
 
         if parsed['hand_over']:
             final_win = resp.get('winnings', 0)
             print(f"Hand Over => pot={parsed['pot_total']}, winnings={final_win}")
             print("====================================\n")
-            return token, final_win
+            final_action = action_str
+            return token, final_win, final_action, hole_cards, board, client_pos
 
         if 'winnings' in resp and resp['winnings'] is not None:
             w = resp['winnings']
             print(f"Slumbot indicates hand ended => w={w}")
             print("====================================\n")
-            return token, w
+            final_action = action_str
+            return token, w, final_action, hole_cards, board, client_pos
 
         seat_to_act = parsed['next_to_act']
         street_name = get_street_name(parsed['street'])
@@ -313,7 +317,8 @@ def PlayHand(token):
             print("No action from hero => presumably Slumbot's turn or hand ended.")
             print("Exiting. The hand might continue from Slumbot's perspective.")
             print("====================================\n")
-            return token, 0
+            final_action = action_str
+            return token, 0, final_action, hole_cards, board, client_pos
 
         print(f"Hero's action => '{ai_move}'")
         resp = Act(token, ai_move)
@@ -321,17 +326,18 @@ def PlayHand(token):
         if new_token:
             token = new_token
 
-        action_str = resp.get('action','')
-        board      = resp.get('board', board)
-        winnings   = resp.get('winnings', None)
+        action_str = resp.get('action', '')
+        board = resp.get('board', board)
+        winnings = resp.get('winnings', None)
         print(f"Updated action => '{action_str}', Board={board if board else 'No board'}")
+
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--username', type=str)
     parser.add_argument('--password', type=str)
-    parser.add_argument('--num_hands', type=int, default=5)
+    parser.add_argument('--num_hands', type=int, default=50)
     args = parser.parse_args()
 
     token = None
@@ -341,8 +347,13 @@ def main():
     total_winnings = 0
     for h in range(args.num_hands):
         print(f"\n=== Playing hand #{h+1} ===")
-        token, w = PlayHand(token)
+        token, w, final_action, hole_cards, board, client_pos = PlayHand(token)
         total_winnings += (w or 0)
+    
+        # Append replay info to a text file (one line per hand):
+        with open("replay.txt", "a") as replay_file:
+            # Format: index, final action string, hole cards, board, client_pos, winnings
+            replay_file.write(f"{h+1},{final_action},{board},{hole_cards},{client_pos},{w}\n")
 
     print(f"\nDONE. total_winnings={total_winnings}")
 

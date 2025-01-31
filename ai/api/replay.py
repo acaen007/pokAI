@@ -60,6 +60,8 @@ def build_replay_experiences(action_str, board, hole_cards, client_pos):
     
     Returns:
         tuple: (list of experiences, updated_cumulative_pot, updated_hero_contrib, updated_villain_contrib)
+               Each hero experience now includes a 'reward' key that equals the negative of the amount
+               the hero just bet (or called). For non-bet/check/fold actions, reward is 0.
     """
     from card_representation import CardRepresentation
     from action_representation import ActionRepresentation
@@ -163,21 +165,24 @@ def build_replay_experiences(action_str, board, hole_cards, client_pos):
                 i += 1
                 continue
 
-            # Map action to action_idx
+            # Map action to action_idx and update contributions
             if action == 'f':
                 action_idx = 0
-                # Folding doesn't change contributions or pot
+                # No money added for a fold.
+                added_amount = 0
             elif action == 'k':
                 action_idx = 1
-                # Checking doesn't change contributions or pot
+                # No money added for a check.
+                added_amount = 0
             elif action == 'c':
                 action_idx = 2
-                # Calculate the amount to call
+                # Calculate the amount to call.
                 to_call = (player_contrib[villain_pos] - player_contrib[pos]) if pos == hero_pos else (player_contrib[hero_pos] - player_contrib[pos])
-                if to_call > 0:
-                    player_contrib[pos] += to_call
-                    cumulative_pot += to_call
-                print(f"Action: 'c' by {'Hero' if pos == hero_pos else 'Villain'} (Seat {pos}) - To Call: {to_call}")
+                added_amount = to_call if to_call > 0 else 0
+                if added_amount > 0:
+                    player_contrib[pos] += added_amount
+                    cumulative_pot += added_amount
+                print(f"Action: 'c' by {'Hero' if pos == hero_pos else 'Villain'} (Seat {pos}) - To Call: {added_amount}")
             elif action.startswith('b'):
                 try:
                     bet_amount = int(action[1:])
@@ -194,6 +199,7 @@ def build_replay_experiences(action_str, board, hole_cards, client_pos):
                 else:
                     effective_bet = bet_amount
 
+                added_amount = effective_bet
                 pot_fraction = effective_bet / cumulative_pot if cumulative_pot > 0 else 0
                 if pot_fraction <= 0.5:
                     action_idx = 3
@@ -216,7 +222,9 @@ def build_replay_experiences(action_str, board, hole_cards, client_pos):
                 current_bet = player_contrib[pos]
                 print(f"Action: '{action}' by {'Hero' if pos == hero_pos else 'Villain'} (Seat {pos}) - Effective Bet: {effective_bet}")
             else:
-                action_idx = 1  # Default to check
+                # Default to check if action unrecognized
+                action_idx = 1
+                added_amount = 0
 
             # Get the next action index for the current round
             try:
@@ -229,25 +237,49 @@ def build_replay_experiences(action_str, board, hole_cards, client_pos):
             row = 0 if pos == hero_pos else 1
             action_rep.add_action(st, action_index_in_round, row, action_idx)
 
-            # If this is hero's action, record the experience
+            # If this is hero's action, record the experience with the reward.
+            # The reward is defined as the negative of the amount just bet (or called).
             if pos == hero_pos:
+                if action.startswith('b'):
+                    reward = -added_amount
+                elif action == 'c':
+                    reward = -added_amount
+                else:
+                    reward = 0
+
                 card_tensor_copy = card_rep.card_tensor.copy()
                 action_tensor_copy = action_rep.action_tensor.copy()
                 experience = {
                     'card_tensor': card_tensor_copy,
                     'action_tensor': action_tensor_copy,
                     'action_idx': action_idx,
-                    'deltas': (player_contrib[hero_pos], player_contrib[villain_pos])
+                    'deltas': (player_contrib[hero_pos], player_contrib[villain_pos]),
+                    'reward': reward
                 }
                 experiences.append(experience)
-                print(f"Recorded experience for Hero at Street {st}: Action='{action}', Action_idx={action_idx}")
+                print(f"Recorded experience for Hero at Street {st}: Action='{action}', Action_idx={action_idx}, Reward={reward}")
             else:
                 print(f"Action by Villain at Street {st}: Action='{action}', Action_idx={action_idx} (No experience recorded)")
 
             # Switch player
             pos = 1 - pos
 
+    # --- Add final state experience ---
+    # This final state captures the hand's state even if the last action wasn't by the hero.
+    card_tensor_copy = card_rep.card_tensor.copy()
+    action_tensor_copy = action_rep.action_tensor.copy()
+    final_experience = {
+        'card_tensor': card_tensor_copy,
+        'action_tensor': action_tensor_copy,
+        'action_idx': -1,  # Marker indicating this is the final state
+        'deltas': (player_contrib[hero_pos], player_contrib[villain_pos]),
+        'reward': 0
+    }
+    experiences.append(final_experience)
+    print("Recorded final state experience.")
+
     return experiences, cumulative_pot, player_contrib[hero_pos], player_contrib[villain_pos]
+
 
     
 def test_build_replay_experiences_suite():
@@ -283,7 +315,7 @@ def test_build_replay_experiences_suite():
             'expected_hero_contrib': SMALL_BLIND + 50 + 100 + 200,  # 50 + 50 + 100 + 200 = 400
             'expected_villain_contrib': BIG_BLIND + 100 + 200,      # 100 + 100 + 200 = 400
             'expected_cumulative_pot': 800,
-            'expected_experiences': 4
+            'expected_experiences': 5
         },
         # {
         #     'description': 'All-In Scenario',

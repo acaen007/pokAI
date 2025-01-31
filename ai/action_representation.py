@@ -60,11 +60,13 @@ class ActionRepresentation:
         if action_index_in_round == 0:
             self.prev_action = None
             self.sum_row = np.zeros(self.nb)
-            legal_actions = range(self.nb)
+            legal_actions = [1, 3, 4, 5, 6, 7, 8] if round_id != 0 else [0, 2, 6, 7, 8]
         if self.prev_action is not None:
             match self.prev_action:
                 case 1:
-                    legal_actions = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+                    legal_actions = [0, 1, 3, 4, 5, 6, 7, 8]
+                case 2:
+                    legal_actions = [0, 2, 3, 4, 5, 6, 7, 8]
                 case 3:
                     legal_actions = [0, 2, 3, 4, 5, 6, 7, 8] # Calling would mean betting 1/3 pot < 1/2 pot
                 case 4:

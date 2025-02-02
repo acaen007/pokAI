@@ -7,6 +7,10 @@ import urllib3
 import sys
 import os
 
+from replay import parse_card
+from experiment import build_action_rep_for_state, to_torch_input
+from siamese_net import logits_to_probs
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 
@@ -208,61 +212,104 @@ def parse_action_enhanced(action_str: str, client_pos: int):
         'hand_over': isHandOver or (pos == -1)
     }
 
-def ChooseActionAI(parsed_state, hole_cards, board, client_pos):
+# ------------------------------
+# MODIFY CHOOSEACTIONAI TO USE POLICY OUTPUTS
+# ------------------------------
+# (Assumes a global policy_net variable is set after training.)
+# Also note: index_to_action_string() is a helper that maps a chosen action index (0-8)
+# to the appropriate API action string given the parsed state. Adjust its logic as needed.
+def index_to_action_string(action_idx, parsed_state, my_stack):
+    # A simple mapping example based on our earlier pot-fraction buckets:
+    # 0 => fold ('f'), 1 => check ('k'), 2 => call ('c'),
+    # 3 => small bet, 4 => medium bet, 5 => pot bet, etc.
+    hero_st = parsed_state['hero_street']
+    vill_st = parsed_state['vill_street']
+    to_call = vill_st - hero_st
+    pot_so_far = parsed_state['pot_total'] + hero_st + vill_st
+    if action_idx == 0:
+        return 'f'
+    elif action_idx == 1:
+        return 'k'
+    elif action_idx == 2:
+        return 'c'
+    elif action_idx == 8:
+        return f"b{my_stack}"
+    else:
+        # For bet actions, we simply choose a bet based on a fraction.
+        # Here we set a default fraction based on the index.
+        fractions = {3: 0.5, 4: 0.75, 5: 1.0, 6: 1.5, 7: 2.0}
+        frac = fractions.get(action_idx, 0.5)
+        half_pot = int(pot_so_far * frac)
+        new_total = hero_st + half_pot
+        if new_total > my_stack:
+            new_total = my_stack
+        return f"b{new_total}"
+
+def ChooseActionAI(parsed_state, hole_cards, board, client_pos, policy_net=None):
     """
-    Simple logic:
-      - If it's not our turn => return ''
-      - If there's some bet (to_call>0), we call or fold
-      - If no bet to call => random check or bet
-      - If seat=1 preflop => we might clamp a minimum open, etc. 
+    Determines our action.
+      - If policy_net is provided, builds state representations from the current betting history
+        and uses the model’s outputs to sample an action.
+      - Otherwise, falls back to heuristic logic.
     """
     if parsed_state['hand_over']:
         return ''
-
     seat = parsed_state['next_to_act']
-    if seat == -1:
-        return ''
     if seat != client_pos:
         return ''
-
     hero_st = parsed_state['hero_street']
     vill_st = parsed_state['vill_street']
-
-    print(f"Hero street={hero_st}, Villain street={vill_st}")
-
-    # how many more do we owe if we want to continue?
     to_call = vill_st - hero_st
-
     pot_so_far = parsed_state['pot_total'] + hero_st + vill_st
-    my_stack = 20000
+    my_stack = STACK_SIZE
 
-    if to_call > 0:
-        # can't check if we owe chips => must call or fold
-        if to_call > my_stack * 0.4:
-            return 'f'  # large portion of stack => fold
-        else:
-            return 'c'  # call
+    if policy_net is not None:
+        # Build the card representation.
+        from card_representation import CardRepresentation
+        card_rep = CardRepresentation()
+        parsed_hole = [parse_card(c) for c in hole_cards]
+        card_rep.set_preflop(parsed_hole)
+        street = parsed_state['street']
+        if street >= 1 and len(board) >= 3:
+            flop = [parse_card(c) for c in board[:3]]
+            card_rep.set_flop(flop)
+        if street >= 2 and len(board) >= 4:
+            card_rep.set_turn(parse_card(board[3]))
+        if street >= 3 and len(board) >= 5:
+            card_rep.set_river(parse_card(board[4]))
+        # Build the action representation from the complete betting history.
+        # (action_str holds the full history up to now)
+        action_rep = build_action_rep_for_state(parsed_state.get('action_str', ""), client_pos)
+        # Convert to torch tensors.
+        action_t, card_t = to_torch_input(card_rep.card_tensor, action_rep.action_tensor)
+        logits, _ = policy_net.forward(action_t, card_t)
+        probs = logits_to_probs(logits)[0].detach().cpu().numpy()
+        action_idx = np.random.choice(len(probs), p=probs)
+
+        print("Playing action based on policy network.")
+        print(f"Action probs: {probs}")
+        return index_to_action_string(action_idx, parsed_state, my_stack)
     else:
-        # no bet => random check or bet
-        if random.random() < 0.5:
-            return 'k'
+        print("Falling back to heuristic logic.")
+        # Fallback heuristic.
+        if to_call > 0:
+            return 'c' if to_call <= my_stack * 0.4 else 'f'
         else:
-            # bet half pot
-            half_pot = pot_so_far // 2
-            new_total = hero_st + half_pot
-            if new_total > my_stack:
-                new_total = my_stack
-
-            # (Optional) if seat=1 preflop => enforce min open=200
-            if parsed_state['street'] == 0 and seat == 1:
-                if new_total < 200:
+            if random.random() < 0.5:
+                return 'k'
+            else:
+                half_pot = pot_so_far // 2
+                new_total = hero_st + half_pot
+                if new_total > my_stack:
+                    new_total = my_stack
+                if parsed_state['street'] == 0 and seat == 1 and new_total < 200:
                     new_total = 200
-
-            return f"b{new_total}"
-
+                return f"b{new_total}"
 
 
-def PlayHand(token):
+
+
+def PlayHand(token, policy_net=None):
     resp = NewHand(token)
     if 'token' in resp:
         token = resp['token']
@@ -312,7 +359,8 @@ def PlayHand(token):
         street_name = get_street_name(parsed['street'])
         print(f"\nStreet: {street_name}, next_to_act={seat_to_act}, action so far='{action_str}'")
 
-        ai_move = ChooseActionAI(parsed, hole_cards, board, client_pos)
+        print(f"Hero's hole cards: {hole_cards}, Board: {board if board else 'No board'}")
+        ai_move = ChooseActionAI(parsed, hole_cards, board, client_pos, policy_net)
         if not ai_move:
             print("No action from hero => presumably Slumbot's turn or hand ended.")
             print("Exiting. The hand might continue from Slumbot's perspective.")
@@ -332,7 +380,6 @@ def PlayHand(token):
         print(f"Updated action => '{action_str}', Board={board if board else 'No board'}")
 
 
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--username', type=str)
@@ -344,18 +391,46 @@ def main():
     if args.username and args.password:
         token = Login(args.username, args.password)
 
+    # Create or load your trained policy network.
+    # For example, here we create a new instance (replace with your trained model as needed):
+    from siamese_net import PseudoSiameseNet
+    policy_net = PseudoSiameseNet()
+
     total_winnings = 0
     for h in range(args.num_hands):
         print(f"\n=== Playing hand #{h+1} ===")
-        token, w, final_action, hole_cards, board, client_pos = PlayHand(token)
+        token, w, final_action, hole_cards, board, client_pos = PlayHand(token, policy_net=policy_net)
         total_winnings += (w or 0)
-    
+
         # Append replay info to a text file (one line per hand):
         with open("replay.txt", "a") as replay_file:
-            # Format: index, final action string, hole cards, board, client_pos, winnings
             replay_file.write(f"{h+1},{final_action},{board},{hole_cards},{client_pos},{w}\n")
 
     print(f"\nDONE. total_winnings={total_winnings}")
+
+# def main():
+#     parser = argparse.ArgumentParser()
+#     parser.add_argument('--username', type=str)
+#     parser.add_argument('--password', type=str)
+#     parser.add_argument('--num_hands', type=int, default=50)
+#     args = parser.parse_args()
+
+#     token = None
+#     if args.username and args.password:
+#         token = Login(args.username, args.password)
+
+#     total_winnings = 0
+#     for h in range(args.num_hands):
+#         print(f"\n=== Playing hand #{h+1} ===")
+#         token, w, final_action, hole_cards, board, client_pos = PlayHand(token, policy_net=None)
+#         total_winnings += (w or 0)
+    
+#         # Append replay info to a text file (one line per hand):
+#         with open("replay.txt", "a") as replay_file:
+#             # Format: index, final action string, hole cards, board, client_pos, winnings
+#             replay_file.write(f"{h+1},{final_action},{board},{hole_cards},{client_pos},{w}\n")
+
+#     print(f"\nDONE. total_winnings={total_winnings}")
 
 if __name__ == '__main__':
     main()

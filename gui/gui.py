@@ -4,7 +4,6 @@ import os
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import numpy as np
-from ai.agent import PokerAI
 from game.game import PokerGame
 from game.player import Player
 from game.card import Card
@@ -53,7 +52,7 @@ class PokerGUI:
     def __init__(self):
         self.game = PokerGame(
             Player('Human', 1000),
-            PokerAI('AI', 1000)
+            Player('Human', 1000),
         )
         self.font = pygame.font.SysFont(None, 24)
         self.show_ai_hand = False

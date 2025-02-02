@@ -169,21 +169,7 @@ def make_model_value_function(model):
 
     build_card_rep_fn(state): -> CardRepresentation
     build_action_rep_fn(state): -> ActionRepresentation
-
-    In real code, you might store the full environment state for each timestep
-    so you don't have to guess how to rebuild reps from 'state'.
     """
-    # def value_function_impl(state):
-
-    #     # Convert to torch
-    #     card_np = state['card_tensor']
-    #     action_np = state['action_tensor']
-    #     card_t = torch.from_numpy(card_np).float()
-    #     action_t = torch.from_numpy(action_np).float()
-
-    #     with torch.no_grad():
-    #         _, val_out = model(action_t, card_t)
-    #     return val_out.item()
     
     def value_function_impl(state):
         card_np = state[0][np.newaxis,...]

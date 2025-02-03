@@ -561,6 +561,9 @@ def main():
             replay_file.write(f"{h+1},{final_action},{board},{hole_cards},{client_pos},{w}\n")
 
     print(f"\nDONE. total_winnings={total_winnings}")
+    print("mBB/hand:", total_winnings / (args.num_hands * BIG_BLIND))
+
+    
 
 if __name__ == '__main__':
     main()

@@ -3,7 +3,7 @@
 from game.deck import Deck
 from game.hand import Hand
 from game.player import Player
-from ai.agent import PokerAI
+# from ai.agent import PokerAI
 import numpy as np
 from game.hand_evaluator import (
     evaluate_hand,

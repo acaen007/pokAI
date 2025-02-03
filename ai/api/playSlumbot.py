@@ -3,9 +3,14 @@ import sys
 import argparse
 import random
 import numpy as np
+import torch
 import urllib3
 import sys
 import os
+
+from replay import parse_card
+from experiment import build_action_rep_for_state, to_torch_input
+from siamese_net import logits_to_probs
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -208,61 +213,257 @@ def parse_action_enhanced(action_str: str, client_pos: int):
         'hand_over': isHandOver or (pos == -1)
     }
 
-def ChooseActionAI(parsed_state, hole_cards, board, client_pos):
+# ------------------------------
+# MODIFY CHOOSEACTIONAI TO USE POLICY OUTPUTS
+# ------------------------------
+# (Assumes a global policy_net variable is set after training.)
+# Also note: index_to_action_string() is a helper that maps a chosen action index (0-8)
+# to the appropriate API action string given the parsed state. Adjust its logic as needed.
+def index_to_action_string(action_idx, parsed_state, my_stack):
     """
-    Simple logic:
-      - If it's not our turn => return ''
-      - If there's some bet (to_call>0), we call or fold
-      - If no bet to call => random check or bet
-      - If seat=1 preflop => we might clamp a minimum open, etc. 
+    Converts a discrete action index into an API action string,
+    ensuring that the bet does not exceed the player's remaining stack.
+    
+    We assume:
+      - parsed_state['hero_street']: contribution in the current street.
+      - parsed_state['pot_total']: total chips contributed in previous streets.
+    
+    We estimate the hero's total contribution as:
+         hero_total = hero_street + (pot_total / 2)
+    so that the remaining chips = my_stack - hero_total.
+    
+    The mapping is:
+      0 -> fold ('f')
+      1 -> check ('k')
+      2 -> call ('c')
+      3-7 -> various bet sizes (fractions of the current pot)
+      8 -> all-in (bet all remaining chips)
+    """
+    hero_st = parsed_state['hero_street']
+    vill_st = parsed_state['vill_street']
+    to_call = vill_st - hero_st
+    pot_so_far = parsed_state['pot_total'] + hero_st + vill_st
+
+    # Estimate hero's total contribution:
+    hero_total = int(hero_st + (parsed_state['pot_total'] / 2))
+    remaining = my_stack - hero_total
+
+    if action_idx == 0:
+        return 'f'
+    elif action_idx == 1:
+        return 'k'
+    elif action_idx == 2:
+        return 'c'
+    elif action_idx == 8:
+        # All-in: bet all remaining chips in addition to what has already been bet this street.
+        return f"b{hero_st + remaining}"
+    else:
+        # Map indices 3–7 to fractions of the pot.
+        fractions = {3: 0.5, 4: 0.75, 5: 1.0, 6: 1.5, 7: 2.0}
+        frac = fractions.get(action_idx, 0.5)
+        # Compute bet amount as a fraction of the pot.
+        bet_amount = int(pot_so_far * frac)
+        new_total = hero_st + bet_amount
+        # If responding to a bet, enforce a minimum raise of at least one big blind above the opponent.
+        if to_call > 0:
+            min_raise_total = vill_st + BIG_BLIND
+            if new_total < min_raise_total:
+                new_total = min_raise_total
+        # Ensure we do not exceed the remaining chips.
+        if new_total > hero_st + remaining:
+            new_total = hero_st + remaining
+        return f"b{new_total}"
+
+
+
+def compute_legal_mask(parsed_state, my_stack):
+    """
+    Computes a legal mask vector (length 9) for discrete actions based on the parsed state and available stack.
+    
+    The parsed_state should contain:
+      - 'hero_street': the hero's contribution in the current betting round.
+      - 'vill_street': the opponent's contribution in the current betting round.
+      - 'pot_total': the total chips contributed in previous rounds.
+      - 'street': the current round (0 for Preflop, 1 for Flop, etc.)
+    
+    We estimate the total contributions as:
+         hero_total = hero_street + (pot_total / 2)
+         vill_total = vill_street + (pot_total / 2)
+    so that remaining chips for hero = my_stack - hero_total.
+    
+    Additional rules:
+      - **If the opponent is all-in:**  
+            If vill_total >= my_stack, then only call (action index 2) and fold (action index 0) are legal.
+      - **If facing an outstanding bet (to_call > 0):**
+          * Allow call (2) always.
+          * Allow fold (0) only when appropriate (e.g. preflop or if hero has already acted).
+          * For raise options (indices 3–7):
+                - If hero is acting first in a round beyond preflop (hero_street == 0 and street > 0),
+                  the new total bet must be at least 2×vill_street.
+                - If hero has already acted (hero_street > 0), then the new total must be at least
+                  vill_street + (vill_street - hero_street) (i.e. at least as large as the last raise).
+      - **If no bet is outstanding (to_call <= 0):**
+          Folding is disallowed (only check, bet, or all‑in are legal).
+      - **All-in option (index 8):**
+          Allowed if chips remain, except when the opponent is all-in.
+    """
+    import numpy as np
+    legal = np.zeros(9, dtype=np.float32)
+    
+    hero_st = parsed_state['hero_street']
+    vill_st = parsed_state['vill_street']
+    to_call = vill_st - hero_st
+    pot_so_far = parsed_state['pot_total'] + hero_st + vill_st
+    current_round = parsed_state.get('street', 0)
+    
+    # Estimate total chips already contributed.
+    hero_total = hero_st + (parsed_state['pot_total'] / 2)
+    vill_total = vill_st + (parsed_state['pot_total'] / 2)
+    remaining = my_stack - hero_total
+    
+    # If the opponent is already all-in, only call or fold are allowed.
+    if vill_total >= my_stack:
+        legal[0] = 1  # fold
+        legal[2] = 1  # call (which would go all-in)
+        return legal
+    
+    # Define discrete raise options (indices 3 to 7) with corresponding pot fractions.
+    fractions = {3: 0.5, 4: 0.75, 5: 1.0, 6: 1.5, 7: 2.0}
+    
+    if to_call > 0:
+        # Facing an outstanding bet.
+        legal[2] = 1  # call is always legal.
+        # Allow fold only if it makes sense (e.g. preflop or if hero has already acted).
+        if current_round == 0 or hero_st > 0:
+            legal[0] = 1
+        
+        # Determine minimum total bet required:
+        if hero_st == 0 and current_round > 0:
+            # When hero is first to act beyond preflop, minimum total bet is 2×vill_st.
+            min_total = 2 * vill_st
+        elif hero_st > 0:
+            # When hero has already acted, minimum total = vill_st + (vill_st - hero_st)
+            min_total = vill_st + (vill_st - hero_st)
+        else:
+            # Preflop: use villain's contribution as minimum.
+            min_total = vill_st
+        
+        # For each raise option, check if the new total meets the minimum and fits within remaining chips.
+        for idx, frac in fractions.items():
+            bet_amount = int(pot_so_far * frac)  # additional bet amount for this option.
+            new_total = hero_st + bet_amount       # new total contribution if chosen.
+            if new_total >= min_total and bet_amount <= remaining:
+                legal[idx] = 1
+        
+        # All-in (index 8) is legal if there are chips remaining.
+        if remaining > 0:
+            legal[8] = 1
+    else:
+        # No outstanding bet (acting first or after a check).
+        # Folding is disallowed.
+        legal[1] = 1  # check is legal.
+        for idx, frac in fractions.items():
+            bet_amount = int(pot_so_far * frac)
+            new_total = hero_st + bet_amount
+            if new_total > hero_st and bet_amount <= remaining:
+                legal[idx] = 1
+        if remaining > 0:
+            legal[8] = 1
+            
+    return legal
+
+
+
+
+
+def ChooseActionAI(parsed_state, hole_cards, board, client_pos, policy_net=None):
+    """
+    Determines our action.
+      - If policy_net is provided, builds the state representations (card and action)
+        from the current betting history and uses the model’s outputs to sample an action.
+      - The network's output is masked so that only legal actions (per computed mask) get probability mass.
+      - Otherwise, falls back to heuristic logic.
     """
     if parsed_state['hand_over']:
         return ''
-
+    
     seat = parsed_state['next_to_act']
-    if seat == -1:
-        return ''
     if seat != client_pos:
         return ''
-
+    
     hero_st = parsed_state['hero_street']
     vill_st = parsed_state['vill_street']
-
-    print(f"Hero street={hero_st}, Villain street={vill_st}")
-
-    # how many more do we owe if we want to continue?
     to_call = vill_st - hero_st
-
     pot_so_far = parsed_state['pot_total'] + hero_st + vill_st
-    my_stack = 20000
+    my_stack = STACK_SIZE
 
-    if to_call > 0:
-        # can't check if we owe chips => must call or fold
-        if to_call > my_stack * 0.4:
-            return 'f'  # large portion of stack => fold
-        else:
-            return 'c'  # call
+    if policy_net is not None:
+        from card_representation import CardRepresentation
+        # Build card representation from hole cards and board.
+        card_rep = CardRepresentation()
+        parsed_hole = [parse_card(c) for c in hole_cards]
+        card_rep.set_preflop(parsed_hole)
+        street = parsed_state['street']
+        if street >= 1 and len(board) >= 3:
+            flop = [parse_card(c) for c in board[:3]]
+            card_rep.set_flop(flop)
+        if street >= 2 and len(board) >= 4:
+            card_rep.set_turn(parse_card(board[3]))
+        if street >= 3 and len(board) >= 5:
+            card_rep.set_river(parse_card(board[4]))
+        
+        # Build the action representation from the betting history.
+        # (We assume parsed_state has the full action string stored as 'action_str'.)
+        action_rep = build_action_rep_for_state(parsed_state.get('action_str', ""), client_pos)
+        
+        # Convert representations to torch tensors.
+        action_t, card_t = to_torch_input(card_rep.card_tensor, action_rep.action_tensor)
+        
+        # Run through the policy network.
+        logits, _ = policy_net.forward(action_t, card_t)  # logits shape: [1, nb]
+        logits = logits[0]  # remove batch dimension
+        
+        # Compute legal mask.
+        legal_mask = compute_legal_mask(parsed_state, my_stack)  # numpy vector of shape (9,)
+        legal_mask_tensor = torch.tensor(legal_mask, dtype=torch.float32, device=logits.device)
+        
+        # Mask logits: set illegal actions to a large negative number.
+        masked_logits = logits + (1 - legal_mask_tensor) * (-1e10)
+        # Compute probabilities over legal actions.
+        masked_probs = torch.softmax(masked_logits, dim=0)
+        masked_probs_np = masked_probs.detach().cpu().numpy()
+        
+        # (Optional debug: print the masked probabilities)
+        print("Playing action with policy network.")
+        print("Action probs:", masked_probs_np)
+        
+        # Sample an action from the masked probabilities.
+        action_idx = np.random.choice(len(masked_probs_np), p=masked_probs_np)
+        # Get the API action string from our mapping.
+        ai_action = index_to_action_string(action_idx, parsed_state, my_stack)
+        return ai_action
     else:
-        # no bet => random check or bet
-        if random.random() < 0.5:
-            return 'k'
+        print("No policy network provided. Using heuristic logic.")
+        # Fallback heuristic.
+        if to_call > 0:
+            return 'c' if to_call <= my_stack * 0.4 else 'f'
         else:
-            # bet half pot
-            half_pot = pot_so_far // 2
-            new_total = hero_st + half_pot
-            if new_total > my_stack:
-                new_total = my_stack
-
-            # (Optional) if seat=1 preflop => enforce min open=200
-            if parsed_state['street'] == 0 and seat == 1:
-                if new_total < 200:
+            if random.random() < 0.5:
+                return 'k'
+            else:
+                half_pot = pot_so_far // 2
+                new_total = hero_st + half_pot
+                if new_total > my_stack:
+                    new_total = my_stack
+                if parsed_state['street'] == 0 and seat == 1 and new_total < 200:
                     new_total = 200
-
-            return f"b{new_total}"
-
+                return f"b{new_total}"
 
 
-def PlayHand(token):
+
+
+
+def PlayHand(token, policy_net=None):
     resp = NewHand(token)
     if 'token' in resp:
         token = resp['token']
@@ -312,7 +513,8 @@ def PlayHand(token):
         street_name = get_street_name(parsed['street'])
         print(f"\nStreet: {street_name}, next_to_act={seat_to_act}, action so far='{action_str}'")
 
-        ai_move = ChooseActionAI(parsed, hole_cards, board, client_pos)
+        print(f"Hero's hole cards: {hole_cards}, Board: {board if board else 'No board'}")
+        ai_move = ChooseActionAI(parsed, hole_cards, board, client_pos, policy_net)
         if not ai_move:
             print("No action from hero => presumably Slumbot's turn or hand ended.")
             print("Exiting. The hand might continue from Slumbot's perspective.")
@@ -332,30 +534,36 @@ def PlayHand(token):
         print(f"Updated action => '{action_str}', Board={board if board else 'No board'}")
 
 
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--username', type=str)
     parser.add_argument('--password', type=str)
-    parser.add_argument('--num_hands', type=int, default=50)
+    parser.add_argument('--num_hands', type=int, default=200)
     args = parser.parse_args()
 
     token = None
     if args.username and args.password:
         token = Login(args.username, args.password)
 
+    # Create or load your trained policy network.
+    # For example, here we create a new instance (replace with your trained model as needed):
+    from siamese_net import PseudoSiameseNet
+    policy_net = PseudoSiameseNet()
+
     total_winnings = 0
     for h in range(args.num_hands):
         print(f"\n=== Playing hand #{h+1} ===")
-        token, w, final_action, hole_cards, board, client_pos = PlayHand(token)
+        token, w, final_action, hole_cards, board, client_pos = PlayHand(token, policy_net=policy_net)
         total_winnings += (w or 0)
-    
+
         # Append replay info to a text file (one line per hand):
         with open("replay.txt", "a") as replay_file:
-            # Format: index, final action string, hole cards, board, client_pos, winnings
             replay_file.write(f"{h+1},{final_action},{board},{hole_cards},{client_pos},{w}\n")
 
     print(f"\nDONE. total_winnings={total_winnings}")
+    print("mBB/hand:", total_winnings / (args.num_hands * BIG_BLIND))
+
+    
 
 if __name__ == '__main__':
     main()

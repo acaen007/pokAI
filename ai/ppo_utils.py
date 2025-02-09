@@ -5,6 +5,9 @@ import torch
 import torch.nn.functional as F
 from siamese_net import logits_to_probs
 
+# Constants
+DELTA1 = 3
+
 
 ##################################################
 # 1) OLD vs. NEW POLICY RATIO
@@ -91,15 +94,15 @@ def a_gae(states, rewards, value_function_fn, gamma=0.999, lambda_=0.99):
 # 4) TRINAL-CLIP POLICY LOSS
 ##################################################
 
-def tc_loss_function(ratio_val: float, advantage: float, epsilon: float, deltas: tuple):
+def tc_loss_function(ratio_val: float, advantage: float, epsilon: float):
     """
     ratio is clipped first to [1-epsilon, 1+epsilon],
     then clipped again to deltas[0].
     => min(ratio, clip(ratio,1±eps), delta1) * advantage
     """
-    (delta1, _, _) = deltas
+    # (delta1, _, _) = deltas
     inner = np.clip(ratio_val, 1 - epsilon, 1 + epsilon)
-    outer = np.clip(ratio_val, inner, delta1)
+    outer = np.clip(ratio_val, inner, DELTA1)
     return outer * advantage
 
 
@@ -114,7 +117,7 @@ def v_loss(r_gamma_val: float, state, deltas: tuple, value_state):
     """
     # For backward compatibility, fallback to 0 if not provided
     
-    clipped_ret = np.clip(r_gamma_val, -deltas[1], deltas[2])
+    clipped_ret = np.clip(r_gamma_val, -deltas[0], deltas[1])
     return (clipped_ret - value_state)**2
 
 
@@ -169,21 +172,7 @@ def make_model_value_function(model):
 
     build_card_rep_fn(state): -> CardRepresentation
     build_action_rep_fn(state): -> ActionRepresentation
-
-    In real code, you might store the full environment state for each timestep
-    so you don't have to guess how to rebuild reps from 'state'.
     """
-    # def value_function_impl(state):
-
-    #     # Convert to torch
-    #     card_np = state['card_tensor']
-    #     action_np = state['action_tensor']
-    #     card_t = torch.from_numpy(card_np).float()
-    #     action_t = torch.from_numpy(action_np).float()
-
-    #     with torch.no_grad():
-    #         _, val_out = model(action_t, card_t)
-    #     return val_out.item()
     
     def value_function_impl(state):
         card_np = state[0][np.newaxis,...]

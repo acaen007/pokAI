@@ -1,16 +1,20 @@
 # AI/toy_experiment.py
 
+import os
+import sys
 import numpy as np
 import torch
 import torch.optim as optim
 
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from ai.api.replay import BIG_BLIND, SMALL_BLIND
 from ppo_utils import (
     a_gae,
     tc_loss_function,
     ratio,
     r_gamma,
     v_loss,
-    get_deltas,
     get_action_from_probs,
     make_model_value_function
 )
@@ -48,46 +52,121 @@ def build_card_rep_for_state(state: str) -> CardRepresentation:
     return cr
 
 
-def build_action_rep_for_state(state: str) -> ActionRepresentation:
+def build_action_rep_for_state(action_history: str, client_pos: int) -> ActionRepresentation:
     """
-    Builds an ActionRepresentation for a given 'state'.
-    We'll fill it with a minimal set of actions so far.
+    Builds an ActionRepresentation from the complete betting history so far.
+    
+    Args:
+        action_history (str): A string of actions (e.g., "b200c/kk/b300") representing the full betting history.
+        client_pos (int): The hero’s seat (0 for BB, 1 for SB). Used to determine who acts first in preflop.
+        
+    Returns:
+        ActionRepresentation: An object whose action_tensor reflects all actions taken up to the current state.
     """
+    from action_representation import ActionRepresentation
+    # Instantiate the full action representation object
     ar = ActionRepresentation(nb=9, max_actions_per_round=6, rounds=4)
+    
+    # Split the action history by rounds (using '/' as delimiter)
+    rounds_list = action_history.split('/')
+    # Initialize the pot as the sum of the blinds (for heads-up, BB + SB)
+    pot = BIG_BLIND + SMALL_BLIND  # e.g. 100 + 50 = 150
 
-    # Suppose on Preflop we have 2 actions that happened:
-    #  - hero (player_id=0) bet pot => action_idx=6
-    #  - villain (player_id=1) calls => action_idx=1
-    # We'll fill those for *all* states up to Flop, 
-    # then add more as we get further into the hand.
-    ar.add_action(0, 0, 0, 6, legal_actions=range(9))  # channel=0
-    ar.add_action(0, 1, 1, 1, legal_actions=range(9))  # channel=1
-
-    if state in ['Flop','Turn','River','Showdown']:
-        # Let's say on the Flop there's 1 action: hero bets small => action_idx=2
-        ar.add_action(1, 0, 0, 2, legal_actions=range(9))  # channel=6 (round_id=1, index=0)
-
-    if state in ['Turn','River','Showdown']:
-        # On Turn, hero checks => action_idx=1
-        ar.add_action(2, 0, 0, 1, legal_actions=range(9))  # channel=12
-
-    if state in ['River','Showdown']:
-        # On River, hero shoves => action_idx=8, for example
-        ar.add_action(3, 0, 0, 8, legal_actions=range(9))  # channel=18
-
+    # Process each round in sequence.
+    for round_id, round_actions in enumerate(rounds_list):
+        # Determine starting player for the round:
+        # Preflop (round_id==0): small blind (seat 1) acts first;
+        # Postflop: big blind (seat 0) acts first.
+        current_player = 1 if round_id == 0 else 0
+        action_index_in_round = 0
+        i = 0
+        while i < len(round_actions):
+            c = round_actions[i]
+            # For simple actions (fold, check, call), use a fixed mapping.
+            if c in ['f', 'k', 'c']:
+                mapping = {'f': 0, 'k': 1, 'c': 2}
+                action_idx = mapping[c]
+                i += 1
+            # For bet actions: note that raises are also marked with 'b'
+            elif c == 'b':
+                j = i + 1
+                while j < len(round_actions) and round_actions[j].isdigit():
+                    j += 1
+                # Extract the numeric bet portion (e.g., for "b300" extract "300")
+                bet_str = round_actions[i+1:j]
+                bet_amount = int(bet_str)
+                i = j
+                # For preflop, subtract the blind already contributed.
+                if round_id == 0:
+                    if current_player == 1:
+                        effective_bet = bet_amount - SMALL_BLIND
+                    else:
+                        effective_bet = bet_amount - BIG_BLIND
+                else:
+                    effective_bet = bet_amount
+                # Compute the ratio relative to the current pot.
+                ratio_val = effective_bet / pot if pot > 0 else 0
+                # Map the ratio to a discrete action index:
+                if ratio_val < 0.6:
+                    action_idx = 3
+                elif ratio_val < 0.9:
+                    action_idx = 4
+                elif ratio_val < 1.2:
+                    action_idx = 5
+                elif ratio_val < 1.7:
+                    action_idx = 6
+                elif ratio_val < 2.2:
+                    action_idx = 7
+                else:
+                    action_idx = 8
+                # Update the pot with the effective bet.
+                pot += effective_bet
+            else:
+                # Skip any unexpected character.
+                i += 1
+                continue
+            # Add the action into the representation.
+            try:
+                ar.add_action(round_id, action_index_in_round, current_player, action_idx)
+            except Exception as e:
+                print(f"Error adding action in round {round_id}: {e}")
+            action_index_in_round += 1
+            # Alternate the acting player.
+            current_player = 1 - current_player
     return ar
 
 
-def to_torch_input(card_rep: CardRepresentation, action_rep: ActionRepresentation):
+
+
+def to_torch_input(card_input, action_input):
     """
-    Convert the card_rep/card_tensor and action_rep/action_tensor
-    to torch tensors of shape (1,...) for the siamese model.
+    Converts a card representation and an action representation to torch tensors.
+    
+    Args:
+        card_input: Either a CardRepresentation object or a numpy array representing the card tensor.
+        action_input: Either an ActionRepresentation object or a numpy array representing the action tensor.
+        
+    Returns:
+        A tuple (action_t, card_t) of torch tensors.
     """
-    card_np = card_rep.card_tensor[np.newaxis, ...]      # (1,6,4,13)
-    action_np = action_rep.action_tensor[np.newaxis, ...]# (1,24,4,9)
+    import numpy as np
+    import torch
+    
+    # If card_input is already a numpy array, use it directly; otherwise, assume it has a card_tensor attribute.
+    if isinstance(card_input, np.ndarray):
+        card_np = card_input[np.newaxis, ...]
+    else:
+        card_np = card_input.card_tensor[np.newaxis, ...]
+    
+    if isinstance(action_input, np.ndarray):
+        action_np = action_input[np.newaxis, ...]
+    else:
+        action_np = action_input.action_tensor[np.newaxis, ...]
+    
     card_t = torch.from_numpy(card_np).float()
     action_t = torch.from_numpy(action_np).float()
     return action_t, card_t
+
 
 
 def run_one_iteration(iter_idx: int, old_policy_net: PseudoSiameseNet, new_policy_net: PseudoSiameseNet,

@@ -253,7 +253,7 @@ def build_replay_experiences(action_str, board, hole_cards, client_pos):
                     'card_tensor': card_tensor_copy,
                     'action_tensor': action_tensor_copy,
                     'action_idx': action_idx,
-                    'deltas': (player_contrib[hero_pos], player_contrib[villain_pos]),
+                    'deltas': (3, player_contrib[hero_pos], player_contrib[villain_pos]),
                     'reward': reward
                 }
                 experiences.append(experience)

@@ -8,7 +8,7 @@ import urllib3
 import sys
 import os
 
-from replay import parse_card
+from .replay import parse_card
 from experiment import build_action_rep_for_state, to_torch_input
 from siamese_net import logits_to_probs
 
@@ -541,6 +541,9 @@ def main():
     parser.add_argument('--num_hands', type=int, default=200)
     args = parser.parse_args()
 
+    print("=========================================")
+    print(args.username, args.password)
+
     token = None
     if args.username and args.password:
         token = Login(args.username, args.password)
@@ -557,7 +560,7 @@ def main():
         total_winnings += (w or 0)
 
         # Append replay info to a text file (one line per hand):
-        with open("replay.txt", "a") as replay_file:
+        with open("ai/replay.txt", "a") as replay_file:
             replay_file.write(f"{h+1},{final_action},{board},{hole_cards},{client_pos},{w}\n")
 
     print(f"\nDONE. total_winnings={total_winnings}")

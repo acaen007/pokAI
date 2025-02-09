@@ -5,6 +5,9 @@ import torch
 import torch.nn.functional as F
 from siamese_net import logits_to_probs
 
+# Constants
+DELTA1 = 3
+
 
 ##################################################
 # 1) OLD vs. NEW POLICY RATIO
@@ -91,15 +94,15 @@ def a_gae(states, rewards, value_function_fn, gamma=0.999, lambda_=0.99):
 # 4) TRINAL-CLIP POLICY LOSS
 ##################################################
 
-def tc_loss_function(ratio_val: float, advantage: float, epsilon: float, deltas: tuple):
+def tc_loss_function(ratio_val: float, advantage: float, epsilon: float):
     """
     ratio is clipped first to [1-epsilon, 1+epsilon],
     then clipped again to deltas[0].
     => min(ratio, clip(ratio,1±eps), delta1) * advantage
     """
-    (delta1, _, _) = deltas
+    # (delta1, _, _) = deltas
     inner = np.clip(ratio_val, 1 - epsilon, 1 + epsilon)
-    outer = np.clip(ratio_val, inner, delta1)
+    outer = np.clip(ratio_val, inner, DELTA1)
     return outer * advantage
 
 
@@ -114,7 +117,7 @@ def v_loss(r_gamma_val: float, state, deltas: tuple, value_state):
     """
     # For backward compatibility, fallback to 0 if not provided
     
-    clipped_ret = np.clip(r_gamma_val, -deltas[1], deltas[2])
+    clipped_ret = np.clip(r_gamma_val, -deltas[0], deltas[1])
     return (clipped_ret - value_state)**2
 
 

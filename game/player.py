@@ -1,4 +1,4 @@
-from game.hand import Hand
+from hand import Hand
 class Player:
     def __init__(self, name, stack):
         self.name = name

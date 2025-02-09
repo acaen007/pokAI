@@ -1,11 +1,11 @@
 # game.py
 
-from game.deck import Deck
-from game.hand import Hand
-from game.player import Player
+from deck import Deck
+from hand import Hand
+from player import Player
 # from ai.agent import PokerAI
 import numpy as np
-from game.hand_evaluator import (
+from hand_evaluator import (
     evaluate_hand,
     get_hand_rank_name,
     classify_hand,

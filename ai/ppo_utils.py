@@ -8,6 +8,7 @@ from siamese_net import logits_to_probs
 # Constants
 DELTA1 = 3
 
+device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu")
 
 ##################################################
 # 1) OLD vs. NEW POLICY RATIO
@@ -175,12 +176,41 @@ def make_model_value_function(model):
     """
     
     def value_function_impl(state):
-        card_np = state[0][np.newaxis,...]
-        action_np = state[1][np.newaxis,...]
-        card_t = torch.from_numpy(card_np).float()
-        action_t = torch.from_numpy(action_np).float()
+        card_np, action_np = state
+        # print("Before:", card_np.shape)
+        action_t, card_t = to_torch_input(card_np, action_np, device)
+        # print("After:", card_np.shape)
         _, val_out = model.forward(action_t, card_t) # I dont think we need to use no_grad here. We want to update the model at some point
         return val_out # I return the tensor for doing backpropagation later. I think is the only way.
     
     return value_function_impl
+
+def to_torch_input(card_input, action_input, device):
+    """
+    Converts a card representation and an action representation to torch tensors.
+    
+    Args:
+        card_input: Either a CardRepresentation object or a numpy array representing the card tensor.
+        action_input: Either an ActionRepresentation object or a numpy array representing the action tensor.
+        
+    Returns:
+        A tuple (action_t, card_t) of torch tensors.
+    """
+    import numpy as np
+    import torch
+    
+    # If card_input is already a numpy array, use it directly; otherwise, assume it has a card_tensor attribute.
+    if isinstance(card_input, np.ndarray):
+        card_np = card_input[np.newaxis, ...]
+    else:
+        card_np = card_input.card_tensor[np.newaxis, ...]
+    
+    if isinstance(action_input, np.ndarray):
+        action_np = action_input[np.newaxis, ...]
+    else:
+        action_np = action_input.action_tensor[np.newaxis, ...]
+    
+    card_t = torch.from_numpy(card_np).float().to(device)
+    action_t = torch.from_numpy(action_np).float().to(device)
+    return action_t, card_t
 

@@ -138,7 +138,7 @@ def build_action_rep_for_state(action_history: str, client_pos: int) -> ActionRe
 
 
 
-def to_torch_input(card_input, action_input):
+def to_torch_input(card_input, action_input, device):
     """
     Converts a card representation and an action representation to torch tensors.
     
@@ -163,8 +163,8 @@ def to_torch_input(card_input, action_input):
     else:
         action_np = action_input.action_tensor[np.newaxis, ...]
     
-    card_t = torch.from_numpy(card_np).float()
-    action_t = torch.from_numpy(action_np).float()
+    card_t = torch.from_numpy(card_np).float().to(device)
+    action_t = torch.from_numpy(action_np).float().to(device)
     return action_t, card_t
 
 

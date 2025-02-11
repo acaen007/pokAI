@@ -123,7 +123,8 @@ def simulate_preflop_range(action_r, model_fn=dummy_model, device='cuda'):
     print(card_reps)
     for idx, cr in enumerate(card_reps):
         act_tensor, card_tensor = to_torch_input(cr, action_r, device)
-        print(f"Hand {get_hand_type(*cr.hole_cards)}: card tensor sum = {card_tensor.sum().item()}")
+        nonzero_coords = torch.nonzero(card_tensor, as_tuple=False).cpu().numpy()
+        print(f"Hand {get_hand_type(*cr.hole_cards)}: nonzero coordinates = {nonzero_coords}")
         # Option 1: If you want to keep the batch dimension from to_torch_input, do not squeeze.
         # Option 2: If you want to remove an extraneous singleton batch dimension, then squeeze.
         # Here I suggest printing out the shapes to decide:
@@ -133,7 +134,8 @@ def simulate_preflop_range(action_r, model_fn=dummy_model, device='cuda'):
     
     # Debug: check that card_tensors are actually different.
     for i in range(3):
-        print(f"Debug: Hand {hand_types[i]} card tensor sum: {card_tensors[i].sum().item()}")
+        nonzero_coords = torch.nonzero(card_tensors[i], as_tuple=False).cpu().numpy()
+        print(f"Debug: Hand {hand_types[i]} card tensor nonzero coords: {nonzero_coords}")
 
     # Create batch tensors.
     action_batch = torch.stack(action_tensors, dim=0).to(device)  # shape: (N, ...)
@@ -141,7 +143,7 @@ def simulate_preflop_range(action_r, model_fn=dummy_model, device='cuda'):
     
     # Forward pass: logits shape is assumed to be (batch_size, num_actions)
     logits, _ = model_fn.forward(action_batch, card_batch)
-    
+    # print(logits)
     # Restrict logits to the allowed actions: [0, 2, 6, 7, 8] (with index 0 as fold).
     allowed = [0, 2, 6, 7, 8]
     logits_allowed = logits[:, allowed]  # shape: (N, 5)
@@ -149,6 +151,7 @@ def simulate_preflop_range(action_r, model_fn=dummy_model, device='cuda'):
     # Compute softmax over the allowed actions.
     probs_allowed = torch.nn.functional.softmax(logits_allowed, dim=-1)
     probs_allowed = probs_allowed.cpu().detach().numpy()  # shape: (N, 5)
+    print(probs_allowed)
     
     # The fold probability is at index 0; thus play probability is 1 - fold probability.
     fold_probs = probs_allowed[:, 0]

@@ -9,8 +9,8 @@ import sys
 import os
 
 from .replay import parse_card
-from experiment import build_action_rep_for_state, to_torch_input
-from siamese_net import logits_to_probs
+from experiment import build_action_rep_for_state
+from siamese_net import logits_to_probs, to_torch_input
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 

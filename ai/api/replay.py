@@ -1,5 +1,7 @@
 import sys 
 import os
+from card_representation import CardRepresentation
+from action_representation import ActionRepresentation
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -63,8 +65,6 @@ def build_replay_experiences(action_str, board, hole_cards, client_pos):
                Each hero experience now includes a 'reward' key that equals the negative of the amount
                the hero just bet (or called). For non-bet/check/fold actions, reward is 0.
     """
-    from card_representation import CardRepresentation
-    from action_representation import ActionRepresentation
 
     # Initialize representations
     card_rep = CardRepresentation()

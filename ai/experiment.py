@@ -141,7 +141,6 @@ def build_action_rep_for_state(action_history: str, client_pos: int) -> ActionRe
 
 
 
-
 def run_one_iteration(iter_idx: int, old_policy_net: PseudoSiameseNet, new_policy_net: PseudoSiameseNet,
                       optimizer: optim.Optimizer):
     """

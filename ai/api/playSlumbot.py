@@ -9,13 +9,16 @@ import sys
 import os
 
 from .replay import parse_card
-from experiment import build_action_rep_for_state
-from siamese_net import logits_to_probs, to_torch_input
+from experiment import build_action_rep_for_state, to_torch_input
+from siamese_net import logits_to_probs
+from card_representation import CardRepresentation
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu")
 
 # ------------------------------
 # SLUMBOT CONSTANTS
@@ -398,7 +401,6 @@ def ChooseActionAI(parsed_state, hole_cards, board, client_pos, policy_net=None)
     my_stack = STACK_SIZE
 
     if policy_net is not None:
-        from card_representation import CardRepresentation
         # Build card representation from hole cards and board.
         card_rep = CardRepresentation()
         parsed_hole = [parse_card(c) for c in hole_cards]
@@ -417,7 +419,7 @@ def ChooseActionAI(parsed_state, hole_cards, board, client_pos, policy_net=None)
         action_rep = build_action_rep_for_state(parsed_state.get('action_str', ""), client_pos)
         
         # Convert representations to torch tensors.
-        action_t, card_t = to_torch_input(card_rep.card_tensor, action_rep.action_tensor)
+        action_t, card_t = to_torch_input(card_rep.card_tensor, action_rep.action_tensor, device)
         
         # Run through the policy network.
         logits, _ = policy_net.forward(action_t, card_t)  # logits shape: [1, nb]

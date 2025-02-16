@@ -138,34 +138,6 @@ def build_action_rep_for_state(action_history: str, client_pos: int) -> ActionRe
 
 
 
-def to_torch_input(card_input, action_input, device):
-    """
-    Converts a card representation and an action representation to torch tensors.
-    
-    Args:
-        card_input: Either a CardRepresentation object or a numpy array representing the card tensor.
-        action_input: Either an ActionRepresentation object or a numpy array representing the action tensor.
-        
-    Returns:
-        A tuple (action_t, card_t) of torch tensors.
-    """
-    import numpy as np
-    import torch
-    
-    # If card_input is already a numpy array, use it directly; otherwise, assume it has a card_tensor attribute.
-    if isinstance(card_input, np.ndarray):
-        card_np = card_input[np.newaxis, ...]
-    else:
-        card_np = card_input.card_tensor[np.newaxis, ...]
-    
-    if isinstance(action_input, np.ndarray):
-        action_np = action_input[np.newaxis, ...]
-    else:
-        action_np = action_input.action_tensor[np.newaxis, ...]
-    
-    card_t = torch.from_numpy(card_np).float().to(device)
-    action_t = torch.from_numpy(action_np).float().to(device)
-    return action_t, card_t
 
 
 

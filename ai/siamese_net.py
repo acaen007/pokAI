@@ -1,10 +1,127 @@
 # AI/siamese_net.py
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.optim as optim
+
+# Autoencoder for the action branch
+class ActionAutoencoder(nn.Module):
+    def __init__(self, action_in_shape=(24, 4, 9)):
+        super().__init__()
+        # Encoder
+        self.encoder = nn.Sequential(
+            nn.Conv2d(action_in_shape[0], 32, kernel_size=3, padding=1),  # (B, 32, 4, 9)
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2),                                  # (B, 32, 2, 4)
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),                    # (B, 64, 2, 4)
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2)                                   # (B, 64, 1, 2)
+        )
+        # Decoder: Reverse the encoder
+        self.decoder = nn.Sequential(
+            nn.ConvTranspose2d(64, 32, kernel_size=2, stride=2),            # (B, 32, 2, 4)
+            nn.ReLU(),
+            nn.ConvTranspose2d(32, action_in_shape[0], kernel_size=2, stride=2, output_padding=(0, 1)),
+            nn.Sigmoid()  # assuming inputs are normalized between 0 and 1
+        )
+    
+    def forward(self, x):
+        encoded = self.encoder(x)
+        decoded = self.decoder(encoded)
+        return decoded
+    
+    def train_encoder(self, dataloader, num_epochs=10):
+        criterion = nn.MSELoss()
+        optimizer = optim.Adam(self.parameters(), lr=1e-3)
+        for epoch in range(num_epochs):
+            for batch in dataloader:
+                # Assume batch['action_input'] has shape (B, 24, 4, 9)
+                action_input = batch['action_input']
+                optimizer.zero_grad()
+                reconstructed = self.forward(action_input)
+                loss = criterion(reconstructed, action_input)
+                loss.backward()
+                optimizer.step()
+            print(f"Action Encoder Epoch {epoch+1}, Loss: {loss.item():.4f}")
+
+# Autoencoder for the card branch
+class CardAutoencoder(nn.Module):
+    def __init__(self, card_in_shape=(6, 4, 13)):
+        super().__init__()
+        # Encoder
+        self.encoder = nn.Sequential(
+            nn.Conv2d(card_in_shape[0], 32, kernel_size=3, padding=1),    # (B, 32, 4, 13)
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2),                                   # (B, 32, 2, 6)
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),                   # (B, 64, 2, 6)
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2)                                    # (B, 64, 1, 3)
+        )
+        # Decoder: Reverse the encoder
+        self.decoder = nn.Sequential(
+            nn.ConvTranspose2d(64, 32, kernel_size=2, stride=2),            # (B, 32, 2, 6)
+            nn.ReLU(),
+            nn.ConvTranspose2d(32, card_in_shape[0], kernel_size=2, stride=2, output_padding=(0, 1)),
+            nn.Sigmoid()
+        )
+    
+    def forward(self, x):
+        encoded = self.encoder(x)
+        decoded = self.decoder(encoded)
+        return decoded
+    
+    def train_encoder(self, dataloader, num_epochs=10):
+        criterion = nn.MSELoss()
+        optimizer = optim.Adam(self.parameters(), lr=1e-3)
+        for epoch in range(num_epochs):
+            for batch in dataloader:
+                # Assume batch['card_input'] has shape (B, 6, 4, 13)
+                card_input = batch['card_input']
+                optimizer.zero_grad()
+                reconstructed = self.forward(card_input)
+                loss = criterion(reconstructed, card_input)
+                loss.backward()
+                optimizer.step()
+            print(f"Card Encoder Epoch {epoch+1}, Loss: {loss.item():.4f}")
 
 class PseudoSiameseNet(nn.Module):
+    def __init__(self, pretrained_action_encoder, pretrained_card_encoder, hidden_dim=256, num_actions=9):
+        super().__init__()
+        self.action_encoder = pretrained_action_encoder
+        self.card_encoder = pretrained_card_encoder
+        
+        # Determine flattened sizes (using dummy data)
+        with torch.no_grad():
+            dummy_action = torch.zeros(1, 24, 4, 9)
+            dummy_card = torch.zeros(1, 6, 4, 13)
+            a_out = self.action_encoder(dummy_action)
+            c_out = self.card_encoder(dummy_card)
+            a_flat = a_out.view(1, -1).size(1)
+            c_flat = c_out.view(1, -1).size(1)
+        
+        fusion_in_dim = a_flat + c_flat
+        self.fusion_fc = nn.Sequential(
+            nn.Linear(fusion_in_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU()
+        )
+        self.policy_head = nn.Linear(hidden_dim, num_actions)
+        self.value_head = nn.Linear(hidden_dim, 1)
+    
+    def forward(self, action_input, card_input):
+        a_feat = self.action_encoder(action_input)
+        c_feat = self.card_encoder(card_input)
+        combined = torch.cat([a_feat.view(a_feat.size(0), -1),
+                              c_feat.view(c_feat.size(0), -1)], dim=1)
+        fusion = self.fusion_fc(combined)
+        policy_logits = self.policy_head(fusion)
+        value = self.value_head(fusion)
+        return policy_logits, value
+
+
+
+class PseudoSiameseNet_OLD(nn.Module):
     """
     Convolutional branches for:
       - Action tensor (shape=(24,4,9))

@@ -259,6 +259,7 @@ def plot_preflop_range(model_fn=dummy_model, show=True):
         annotations: The annotations for each cell.
     """
     action_tensor = ActionRepresentation(rounds=4, max_actions_per_round=6, nb=9).action_tensor # CHECK THIS. WE SHOULD INCLUDE THE LEGAL MOVES
+    # action_tensor[0, 3] = [1, 0, 1, 0, 0, 0, 1, 1, 1] # This would be the legal actions
     avg_pairs, avg_suited, avg_offsuit = simulate_preflop_range(action_tensor, model_fn)
     merged_matrix, annotations, rank_labels = build_merged_matrix(avg_pairs, avg_suited, avg_offsuit)
     fig, ax = plot_merged_range(merged_matrix, annotations, rank_labels)

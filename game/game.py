@@ -1,11 +1,11 @@
 # game.py
 
-from deck import Deck
-from hand import Hand
-from player import Player
+from .deck import Deck
+from .hand import Hand
+from .player import Player
 # from ai.agent import PokerAI
 import numpy as np
-from hand_evaluator import (
+from .hand_evaluator import (
     evaluate_hand,
     get_hand_rank_name,
     classify_hand,
@@ -22,8 +22,8 @@ class PokerGame:
         self.stage = 'not_started'
         self.bets_to_match = 0
         self.previous_actions = []
-        self.small_blind = 10
-        self.big_blind = 20
+        self.small_blind = 50
+        self.big_blind = 100
         self.dealer = player1
         self.player_all_in = None  # Track if a player is all-in
         self.players_who_acted = set()  # Initialize players_who_acted
@@ -34,8 +34,9 @@ class PokerGame:
 
     def start_new_round(self):
         print("\nStarting a new round.")
-        print("player_stacks:", [player.stack for player in self.players])
         self.reset_between_rounds()
+
+        print("player_stacks:", [player.stack for player in self.players])
         print("Dealer:", self.dealer.name)
         self.deck = Deck()
         self.deal_hole_cards()
@@ -76,7 +77,6 @@ class PokerGame:
         self.current_player_index = (self.players.index(big_blind_player) + 1) % len(self.players)
 
     def reset_between_rounds(self):
-        # Reset attributes between rounds but keep players' stacks
         self.pot = 0
         self.deck = None
         self.community_cards = []
@@ -90,11 +90,15 @@ class PokerGame:
         self.player_all_in = None
         self.players_who_acted = set()
         self.actions_in_round = 0
+        #reset stacks
+        for player in self.players:
+            player.stack = 20000
         self.winner_declared = False
         self.winner = None
         self.switch_dealers()
     
     def switch_dealers(self):
+        print("Switching dealers.")
         self.dealer = self.players[0] if self.dealer == self.players[1] else self.players[1]
         #first player to act alternates between pre-flop and flop
         self.switchPlayerToAct()
@@ -165,9 +169,16 @@ class PokerGame:
         return state
 
     def handle_action(self, player, action, amount=0, action_index=None):
+        print("GETTING HERE2222")
+
         player_index = self.players.index(player)
         bets_to_match = self.bets_to_match
         current_bet = player.current_bet
+
+        # Check if the action is valid
+        if action not in ['check', 'fold', 'call', 'bet', 'raise']:
+            print(f"Invalid action: {action}")
+            return
 
         # Validate action legality
         if action == 'check' and bets_to_match > current_bet:
@@ -233,7 +244,11 @@ class PokerGame:
         # Record that the player has acted
         self.players_who_acted.add(player)
 
+        # Increment the action count for the current betting round
+        self.actions_in_round += 1
+
         self.current_player_index = (self.current_player_index + 1) % len(self.players)
+        print(f"Next player to act: {self.players[self.current_player_index].name}")
 
     def get_action_index(self, action):
         if action == 'check':
@@ -363,6 +378,13 @@ class PokerGame:
           - All players have checked (no bets were made), or
           - A bet has been made and then called or all-in has been called.
         """
+
+        print("number of actions in round:", self.actions_in_round)
+        print("number of players:", len(self.players))
+        print("bets to match:", self.bets_to_match)
+        print("players matched bets:", self.players_matched_bets())
+        print("all players acted:", self.all_players_acted())
+        
         # If all players have acted at least once
         if self.actions_in_round >= len(self.players):
             # If all players have checked

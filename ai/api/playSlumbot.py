@@ -9,8 +9,8 @@ import sys
 import os
 
 from .replay import parse_card
-from experiment import build_action_rep_for_state, to_torch_input
-from siamese_net import logits_to_probs
+from experiment import build_action_rep_for_state
+from siamese_net import logits_to_probs, to_torch_input
 from card_representation import CardRepresentation
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -379,7 +379,7 @@ def compute_legal_mask(parsed_state, my_stack):
 
 
 
-def ChooseActionAI(parsed_state, hole_cards, board, client_pos, policy_net=None):
+def ChooseActionAI(parsed_state, hole_cards, board, client_pos, policy_net=None, device=None):
     """
     Determines our action.
       - If policy_net is provided, builds the state representations (card and action)
@@ -419,7 +419,7 @@ def ChooseActionAI(parsed_state, hole_cards, board, client_pos, policy_net=None)
         action_rep = build_action_rep_for_state(parsed_state.get('action_str', ""), client_pos)
         
         # Convert representations to torch tensors.
-        action_t, card_t = to_torch_input(card_rep.card_tensor, action_rep.action_tensor, device)
+        action_t, card_t = to_torch_input(card_rep.card_tensor, action_rep.action_tensor, device=device)
         
         # Run through the policy network.
         logits, _ = policy_net.forward(action_t, card_t)  # logits shape: [1, nb]
@@ -462,10 +462,7 @@ def ChooseActionAI(parsed_state, hole_cards, board, client_pos, policy_net=None)
                 return f"b{new_total}"
 
 
-
-
-
-def PlayHand(token, policy_net=None):
+def PlayHand(token, policy_net=None, device=None):
     resp = NewHand(token)
     if 'token' in resp:
         token = resp['token']
@@ -516,7 +513,7 @@ def PlayHand(token, policy_net=None):
         print(f"\nStreet: {street_name}, next_to_act={seat_to_act}, action so far='{action_str}'")
 
         print(f"Hero's hole cards: {hole_cards}, Board: {board if board else 'No board'}")
-        ai_move = ChooseActionAI(parsed, hole_cards, board, client_pos, policy_net)
+        ai_move = ChooseActionAI(parsed, hole_cards, board, client_pos, policy_net, device=device)
         if not ai_move:
             print("No action from hero => presumably Slumbot's turn or hand ended.")
             print("Exiting. The hand might continue from Slumbot's perspective.")

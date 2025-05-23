@@ -101,31 +101,18 @@ def clone_model_weights(src_model: nn.Module, dst_model: nn.Module):
     """
     dst_model.load_state_dict(src_model.state_dict())
 
-def to_torch_input(card_input, action_input):
-    """
-    Converts a card representation and an action representation to torch tensors.
-    
-    Args:
-        card_input: Either a CardRepresentation object or a numpy array representing the card tensor.
-        action_input: Either an ActionRepresentation object or a numpy array representing the action tensor.
-        
-    Returns:
-        A tuple (action_t, card_t) of torch tensors.
-    """
-    import numpy as np
-    import torch
-    
-    # If card_input is already a numpy array, use it directly; otherwise, assume it has a card_tensor attribute.
+
+def to_torch_input(card_input, action_input, device):
+    import numpy as np, torch
     if isinstance(card_input, np.ndarray):
-        card_np = card_input[np.newaxis, ...]
+        c_np = card_input[None]
     else:
-        card_np = card_input.card_tensor[np.newaxis, ...]
-    
+        c_np = card_input.card_tensor[None]
     if isinstance(action_input, np.ndarray):
-        action_np = action_input[np.newaxis, ...]
+        a_np = action_input[None]
     else:
-        action_np = action_input.action_tensor[np.newaxis, ...]
-    
-    card_t = torch.from_numpy(card_np).float()
-    action_t = torch.from_numpy(action_np).float()
+        a_np = action_input.action_tensor[None]
+
+    card_t = torch.from_numpy(c_np).float().to(device)
+    action_t = torch.from_numpy(a_np).float().to(device)
     return action_t, card_t

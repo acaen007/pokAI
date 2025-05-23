@@ -4,8 +4,6 @@ import os
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import numpy as np
-from ai.agent import PokerAI
-from ai import slumbot_interface
 from game.game import PokerGame
 from game.player import Player
 from game.card import Card
@@ -54,7 +52,7 @@ class PokerGUI:
     def __init__(self):
         self.game = PokerGame(
             Player('Human', 1000),
-            PokerAI('AI', 1000)
+            Player('Human', 1000),
         )
         self.font = pygame.font.SysFont(None, 24)
         self.show_ai_hand = False
@@ -68,8 +66,6 @@ class PokerGUI:
         self.winner = None
         self.winning_hand = []
         self.hand_rank = ''
-        self.token = None  # Initialize the Slumbot token
-
     
     def draw_text(self, text, x, y, color=(255, 255, 255)):
         img = self.font.render(text, True, color)
@@ -381,27 +377,6 @@ class PokerGUI:
         # Map AI action index to action string
         action_mapping = {0: 'fold', 1: 'call', 2: 'raise'}
         return action_mapping.get(action_index, 'call')
-    
-
-    def start_new_round(self):
-        # Start a new hand with Slumbot
-        response = slumbot_interface.NewHand(self.token)
-        # Update the token if necessary
-        self.token = response.get('token', self.token)
-        # Get the human player's hole cards
-        hole_cards = response['hole_cards']
-        # Convert card strings to Card objects
-        human_hole_cards = [Card.from_string(card_str) for card_str in hole_cards]
-        self.game.players[0].hand.cards = human_hole_cards
-        # The AI player's hole cards are unknown at this point
-        self.game.players[1].hand.cards = []  # Empty list or placeholder
-        # Apply any initial action from Slumbot
-        initial_action = response.get('action', '')
-        if initial_action:
-            self.apply_slumbot_action(initial_action)
-        # Reset other game states as necessary
-        # ...
-
     
     def main_loop(self):
         # Start a new round

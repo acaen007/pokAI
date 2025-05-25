@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from siamese_net import logits_to_probs
+from debug_utils import debug_print
 
 # Constants
 DELTA1 = 3
@@ -26,69 +27,39 @@ def ratio(old_probs: np.ndarray, new_probs: np.ndarray, action_idx: int):
 ##################################################
 # 2) DISCOUNTED RETURNS (r_gamma)
 ##################################################
-
 def r_gamma(rewards: np.ndarray, gamma: float) -> float:
     """
-    Accumulates rewards in reverse order (except the first),
-    multiplying by gamma at each step, then adds the first reward.
+    Compute multi-step return R = r[0] + gamma*r[1] + gamma^2*r[2] + ...
     """
-    r_val = 0.0
-    # Reverse except the first element
-    for reward in rewards[:0:-1]:
-        r_val = gamma * (r_val + reward)
-    if len(rewards) > 0:
-        r_val += rewards[0]
-    return r_val
-
+    R = 0.0
+    for reward in rewards[::-1]:
+        R = reward + gamma * R
+    return R
 
 ##################################################
-# 3) ADVANTAGE ESTIMATION (a_gae)
+# 3) ADVANTAGE ESTIMATION (GAE)
 ##################################################
 
-def a_gae_old(results, states, value_function_fn, gamma=0.999, lambda_=0.99):
+def a_gae(states, rewards, value_fn, gamma=0.999, lambda_=0.99) -> float:
     """
-    A single-scalar GAE, as in your original code:
-      - len(states) == len(results)
-      - We do NOT assume an extra 'terminal state' 
+    Generalized Advantage Estimation (single-scalar) per AlphaHold'em.
     """
-    N = len(results)
-    if N == 0:
-        return 0.0
-    
-    v0 = value_function_fn(states[0])
-    # partial sums S[k] = Σ_{i=0..k-1} gamma^i * results[i]
-    S = np.zeros(N+1, dtype=float)
-    for i in range(N):
-        S[i+1] = S[i] + (gamma ** i) * results[i]
-    
-    gae_sum = 0.0
-    for k in range(1, N):
-        a_k = -v0 + S[k] + (gamma ** k) * value_function_fn(states[k])
-        gae_sum += (lambda_ ** (k - 1)) * a_k
-    return (1 - lambda_) * gae_sum
-
-def a_gae(states, rewards, value_function_fn, gamma=0.999, lambda_=0.99):
-    """
-    A single-scalar GAE, as in your original code:
-      - len(states) == len(results)
-      - We do NOT assume an extra 'terminal state' 
-    """
-
     N = len(states)
     if N == 0:
         return 0.0
-    
-    v0 = value_function_fn(states[0]).item()
-    # partial sums S[k] = Σ_{i=0..k-1} gamma^i * results[i]
+    # value at t=0
+    v0 = value_fn(states[0]).item()
+    # prefix sums of discounted rewards
     S = np.zeros(N+1, dtype=float)
     for i in range(N):
-        S[i+1] = S[i] + (gamma ** i) * rewards[i]
-    
-    gae_sum = 0.0
+        S[i+1] = S[i] + (gamma**i) * rewards[i]
+    # GAE sum
+    gae = 0.0
     for k in range(1, N):
-        a_k = -v0 + S[k] + (gamma ** k) * value_function_fn(states[k]).item()
-        gae_sum += (lambda_ ** (k - 1)) * a_k
-    return (1 - lambda_) * gae_sum
+        vk = value_fn(states[k]).item()
+        delta = -v0 + S[k] + (gamma**k) * vk
+        gae += (lambda_**(k-1)) * delta
+    return (1 - lambda_) * gae
 
 
 ##################################################
@@ -118,7 +89,10 @@ def v_loss(r_gamma_val: float, state, deltas: tuple, value_state):
     """
     # For backward compatibility, fallback to 0 if not provided
     
+    debug_print("The deltas are:", deltas)
+    debug_print("r_gamma_val:", r_gamma_val, "Value state:", value_state)
     clipped_ret = np.clip(r_gamma_val, -deltas[0], deltas[1])
+    debug_print("Clipped return:", clipped_ret, "Value state:", value_state)
     return (clipped_ret - value_state)**2
 
 
@@ -177,9 +151,9 @@ def make_model_value_function(model):
     
     def value_function_impl(state):
         card_np, action_np = state
-        # print("Before:", card_np.shape)
+        # debug_print("Before:", card_np.shape)
         action_t, card_t = to_torch_input(card_np, action_np, device)
-        # print("After:", card_np.shape)
+        # debug_print("After:", card_np.shape)
         _, val_out = model.forward(action_t, card_t) # I dont think we need to use no_grad here. We want to update the model at some point
         return val_out # I return the tensor for doing backpropagation later. I think is the only way.
     

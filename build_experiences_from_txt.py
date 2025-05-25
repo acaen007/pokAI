@@ -1,6 +1,7 @@
 import ast
 import re
 from ai.api.replay import build_replay_experiences
+from ai.debug_utils import debug_print
 
 def build_experiences_from_txt(file_path="replay.txt"):
     """
@@ -31,7 +32,7 @@ def build_experiences_from_txt(file_path="replay.txt"):
             pattern = r'^(\d+),([^,]+),(\[.*?\]),(\[.*?\]),(\d+),(-?\d+)$'
             match = re.match(pattern, line)
             if not match:
-                print(f"Skipping line due to format mismatch: {line}")
+                debug_print(f"Skipping line due to format mismatch: {line}")
                 continue
 
             hand_index = int(match.group(1))
@@ -40,7 +41,7 @@ def build_experiences_from_txt(file_path="replay.txt"):
                 board = ast.literal_eval(match.group(3))
                 hole_cards = ast.literal_eval(match.group(4))
             except Exception as e:
-                print(f"Error parsing lists in line: {line}\n{e}")
+                debug_print(f"Error parsing lists in line: {line}\n{e}")
                 continue
             client_pos = int(match.group(5))
             winnings = int(match.group(6))
@@ -64,13 +65,13 @@ if __name__ == '__main__':
     # Assumes that build_replay_experiences (and its dependencies like parse_card)
     # along with constants (NUM_STREETS, BIG_BLIND, SMALL_BLIND) are already defined.
     experiences = build_experiences_from_txt("replay.txt")
-    print("Total experiences built:", len(experiences))
+    debug_print("Total experiences built:", len(experiences))
     # Optionally, print out a few experiences for inspection
     for exp in experiences[:1]:
-        # print("Hand", exp.get('hand_index'), "winnings:", exp.get('winnings'))
-        print("Deltas (Hero, Villain):", exp.get('deltas'))
-        print("Action Tensor:")
-        print(exp.get('action_tensor'))
-        print("Card Tensor:")
-        print(exp.get('card_tensor'))
-        print("-" * 40)
+        # debug_print("Hand", exp.get('hand_index'), "winnings:", exp.get('winnings'))
+        debug_print("Deltas (Hero, Villain):", exp.get('deltas'))
+        debug_print("Action Tensor:")
+        debug_print(exp.get('action_tensor'))
+        debug_print("Card Tensor:")
+        debug_print(exp.get('card_tensor'))
+        debug_print("-" * 40)

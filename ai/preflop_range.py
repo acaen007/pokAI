@@ -123,14 +123,14 @@ def simulate_preflop_range(action_r, model_fn=dummy_model, device='cuda'):
     for idx, cr in enumerate(card_reps):
         act_tensor, card_tensor = to_torch_input(cr, action_r, device)
         nonzero_coords = torch.nonzero(card_tensor, as_tuple=False).cpu().numpy()
-        # print(f"Hand {get_hand_type(*cr.hole_cards)}: nonzero coordinates = {nonzero_coords}")
+        # debug_print(f"Hand {get_hand_type(*cr.hole_cards)}: nonzero coordinates = {nonzero_coords}")
         action_tensors.append(act_tensor.squeeze(0))
         card_tensors.append(card_tensor.squeeze(0))
     
     # Debug: check that card_tensors are actually different.
     # for i in range(3):
     #     nonzero_coords = torch.nonzero(card_tensors[i], as_tuple=False).cpu().numpy()
-    #     print(f"Debug: Hand {hand_types[i]} card tensor nonzero coords: {nonzero_coords}")
+    #     debug_print(f"Debug: Hand {hand_types[i]} card tensor nonzero coords: {nonzero_coords}")
 
     # Create batch tensors.
     action_batch = torch.stack(action_tensors, dim=0).to(device)  # shape: (N, ...)
@@ -138,7 +138,7 @@ def simulate_preflop_range(action_r, model_fn=dummy_model, device='cuda'):
     
     # Forward pass: logits shape is assumed to be (batch_size, num_actions)
     logits, _ = model_fn.forward(action_batch, card_batch)
-    # print(logits)
+    # debug_print(logits)
     # Restrict logits to the allowed actions: [0, 2, 6, 7, 8] (with index 0 as fold).
     allowed = [0, 2, 6, 7, 8]
     logits_allowed = logits[:, allowed]  # shape: (N, 5)
@@ -146,7 +146,7 @@ def simulate_preflop_range(action_r, model_fn=dummy_model, device='cuda'):
     # Compute softmax over the allowed actions.
     probs_allowed = torch.nn.functional.softmax(logits_allowed, dim=-1)
     probs_allowed = probs_allowed.cpu().detach().numpy()  # shape: (N, 5)
-    # print(probs_allowed)
+    # debug_print(probs_allowed)
     
     # The fold probability is at index 0; thus play probability is 1 - fold probability.
     fold_probs = probs_allowed[:, 0]

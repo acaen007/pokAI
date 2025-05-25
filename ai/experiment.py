@@ -18,6 +18,7 @@ from ppo_utils import (
     get_action_from_probs,
     make_model_value_function
 )
+from debug_utils import debug_print
 from card_representation import CardRepresentation
 from action_representation import ActionRepresentation
 from siamese_net import PseudoSiameseNet, logits_to_probs, clone_model_weights
@@ -129,7 +130,7 @@ def build_action_rep_for_state(action_history: str, client_pos: int) -> ActionRe
             try:
                 ar.add_action(round_id, action_index_in_round, current_player, action_idx)
             except Exception as e:
-                print(f"Error adding action in round {round_id}: {e}")
+                debug_print(f"Error adding action in round {round_id}: {e}")
             action_index_in_round += 1
             # Alternate the acting player.
             current_player = 1 - current_player
@@ -153,7 +154,7 @@ def run_one_iteration(iter_idx: int, old_policy_net: PseudoSiameseNet, new_polic
       - a toy value loss, 
       - gradient update => new_policy_net changes.
     """
-    print(f"\n=== Iteration {iter_idx} ===")
+    debug_print(f"\n=== Iteration {iter_idx} ===")
     states = ['Preflop','Flop','Turn','River','Showdown']
     rewards = [-20, -20, -80, 0, 240]
 
@@ -220,11 +221,11 @@ def run_one_iteration(iter_idx: int, old_policy_net: PseudoSiameseNet, new_polic
         total_val_loss += val_loss_val
         steps_count += 1
 
-        print(f"  State={st}, ratio={ratio_val:.3f}, advantage={advantage:.2f}, action_idx={action_idx}")
-        print(f"    pol_loss={pol_loss_val:.3f}, val_loss={val_loss_val:.3f}")
+        debug_print(f"  State={st}, ratio={ratio_val:.3f}, advantage={advantage:.2f}, action_idx={action_idx}")
+        debug_print(f"    pol_loss={pol_loss_val:.3f}, val_loss={val_loss_val:.3f}")
 
     if steps_count > 0:
-        print(f"=> iteration {iter_idx} done. avg pol_loss={total_pol_loss/steps_count:.3f}, avg val_loss={total_val_loss/steps_count:.3f}")
+        debug_print(f"=> iteration {iter_idx} done. avg pol_loss={total_pol_loss/steps_count:.3f}, avg val_loss={total_val_loss/steps_count:.3f}")
 
 
 def main():
@@ -246,7 +247,7 @@ def main():
     # Iteration 2
     run_one_iteration(2, old_policy_net, new_policy_net, optimizer)
 
-    print("\nDone. You can add more iterations or logic as needed.")
+    debug_print("\nDone. You can add more iterations or logic as needed.")
 
 
 if __name__ == "__main__":

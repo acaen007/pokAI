@@ -169,8 +169,6 @@ class PokerGame:
         return state
 
     def handle_action(self, player, action, amount=0, action_index=None):
-        print("GETTING HERE2222")
-
         player_index = self.players.index(player)
         bets_to_match = self.bets_to_match
         current_bet = player.current_bet
@@ -378,12 +376,6 @@ class PokerGame:
           - All players have checked (no bets were made), or
           - A bet has been made and then called or all-in has been called.
         """
-
-        print("number of actions in round:", self.actions_in_round)
-        print("number of players:", len(self.players))
-        print("bets to match:", self.bets_to_match)
-        print("players matched bets:", self.players_matched_bets())
-        print("all players acted:", self.all_players_acted())
         
         # If all players have acted at least once
         if self.actions_in_round >= len(self.players):
@@ -394,6 +386,7 @@ class PokerGame:
             # If bets are matched (including all-ins)
             elif self.players_matched_bets():
                 print("Bets are matched. Moving to next stage.")
+                print("Pot is now:", self.pot)
                 return True
         return False
     

@@ -50,7 +50,7 @@ def parse_card(card_str):
     return (rank, suit)
 
 
-def build_replay_experiences(action_str, board, hole_cards, client_pos):
+def build_replay_experiences(action_str, board, hole_cards, client_pos, winnings):
     """
     Parses the action string, board, and hole cards to build replay experiences.
     
@@ -268,12 +268,15 @@ def build_replay_experiences(action_str, board, hole_cards, client_pos):
     # This final state captures the hand's state even if the last action wasn't by the hero.
     card_tensor_copy = card_rep.card_tensor.copy()
     action_tensor_copy = action_rep.action_tensor.copy()
+    
+    final_reward = cumulative_pot if winnings > 0 else 0
+    final_reward = cumulative_pot/2 if winnings == player_contrib[hero_pos] else final_reward  # Adjust reward if winnings are equal to hero's contribution
     final_experience = {
         'card_tensor': card_tensor_copy,
         'action_tensor': action_tensor_copy,
         'action_idx': -1,  # Marker indicating this is the final state
         'deltas': (player_contrib[hero_pos], player_contrib[villain_pos]),
-        'reward': 0
+        'reward': final_reward
     }
     experiences.append(final_experience)
     print("Recorded final state experience.")

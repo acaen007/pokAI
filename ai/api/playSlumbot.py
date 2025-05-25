@@ -13,6 +13,7 @@ from experiment import build_action_rep_for_state
 from siamese_net import logits_to_probs, to_torch_input
 from card_representation import CardRepresentation
 
+from debug_utils import debug_print
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 
@@ -37,21 +38,21 @@ def Login(username, password):
     data = {"username": username, "password": password}
     response = requests.post(f'https://{host}/api/login', json=data, verify=False)
     if response.status_code != 200:
-        print('Status code:', response.status_code)
+        debug_print('Status code:', response.status_code)
         try:
-            print('Error response:', response.json())
+            debug_print('Error response:', response.json())
         except ValueError:
             pass
         sys.exit(-1)
 
     r = response.json()
     if 'error_msg' in r:
-        print('Error:', r['error_msg'])
+        debug_print('Error:', r['error_msg'])
         sys.exit(-1)
 
     token = r.get('token')
     if not token:
-        print('Did not get token in response to /api/login')
+        debug_print('Did not get token in response to /api/login')
         sys.exit(-1)
     return token
 
@@ -62,16 +63,16 @@ def NewHand(token):
         data['token'] = token
     response = requests.post(f'https://{host}/api/new_hand', json=data, verify=False)
     if response.status_code != 200:
-        print('Status code:', response.status_code)
+        debug_print('Status code:', response.status_code)
         try:
-            print('Error response:', response.json())
+            debug_print('Error response:', response.json())
         except ValueError:
             pass
         sys.exit(-1)
 
     r = response.json()
     if 'error_msg' in r:
-        print('Error:', r['error_msg'])
+        debug_print('Error:', r['error_msg'])
         sys.exit(-1)
     return r
 
@@ -80,16 +81,16 @@ def Act(token, action):
     data = {'token': token, 'incr': action}
     response = requests.post(f'https://{host}/api/act', json=data, verify=False)
     if response.status_code != 200:
-        print('Status code:', response.status_code)
+        debug_print('Status code:', response.status_code)
         try:
-            print('Error response:', response.json())
+            debug_print('Error response:', response.json())
         except ValueError:
             pass
         sys.exit(-1)
 
     r = response.json()
     if 'error_msg' in r:
-        print('Error:', r['error_msg'])
+        debug_print('Error:', r['error_msg'])
         sys.exit(-1)
     return r
 
@@ -436,8 +437,8 @@ def ChooseActionAI(parsed_state, hole_cards, board, client_pos, policy_net=None,
         masked_probs_np = masked_probs.detach().cpu().numpy()
         
         # (Optional debug: print the masked probabilities)
-        print("Playing action with policy network.")
-        print("Action probs:", masked_probs_np)
+        debug_print("Playing action with policy network.")
+        debug_print("Action probs:", masked_probs_np)
         
         # Sample an action from the masked probabilities.
         action_idx = np.random.choice(len(masked_probs_np), p=masked_probs_np)
@@ -445,7 +446,7 @@ def ChooseActionAI(parsed_state, hole_cards, board, client_pos, policy_net=None,
         ai_action = index_to_action_string(action_idx, parsed_state, my_stack)
         return ai_action
     else:
-        print("No policy network provided. Using heuristic logic.")
+        debug_print("No policy network provided. Using heuristic logic.")
         # Fallback heuristic.
         if to_call > 0:
             return 'c' if to_call <= my_stack * 0.4 else 'f'
@@ -473,55 +474,55 @@ def PlayHand(token, policy_net=None, device=None):
     board = resp.get('board', [])
     winnings = resp.get('winnings', None)
 
-    print("\n====================================")
-    print("NEW HAND STARTED")
-    print(f"Token: {token}")
-    print(f"Hero seat={client_pos} => {'Big Blind' if client_pos==0 else 'Small Blind'}")
-    print(f"Hole cards: {hole_cards}, Board: {board if board else 'No board'}")
-    print(f"Initial action: '{action_str}'")
+    debug_print("\n====================================")
+    debug_print("NEW HAND STARTED")
+    debug_print(f"Token: {token}")
+    debug_print(f"Hero seat={client_pos} => {'Big Blind' if client_pos==0 else 'Small Blind'}")
+    debug_print(f"Hole cards: {hole_cards}, Board: {board if board else 'No board'}")
+    debug_print(f"Initial action: '{action_str}'")
 
     while True:
         if winnings is not None:
-            print(f"Hand ended immediately, winnings={winnings}")
-            print("====================================\n")
+            debug_print(f"Hand ended immediately, winnings={winnings}")
+            debug_print("====================================\n")
             final_action = action_str
             return token, winnings, final_action, hole_cards, board, client_pos
 
         parsed = parse_action_enhanced(action_str, client_pos)
         if parsed['error']:
-            print("Error:", parsed['error'])
-            print("====================================\n")
+            debug_print("Error:", parsed['error'])
+            debug_print("====================================\n")
             final_action = action_str
             return token, 0, final_action, hole_cards, board, client_pos
 
         if parsed['hand_over']:
             final_win = resp.get('winnings', 0)
-            print(f"Hand Over => pot={parsed['pot_total']}, winnings={final_win}")
-            print("====================================\n")
+            debug_print(f"Hand Over => pot={parsed['pot_total']}, winnings={final_win}")
+            debug_print("====================================\n")
             final_action = action_str
             return token, final_win, final_action, hole_cards, board, client_pos
 
         if 'winnings' in resp and resp['winnings'] is not None:
             w = resp['winnings']
-            print(f"Slumbot indicates hand ended => w={w}")
-            print("====================================\n")
+            debug_print(f"Slumbot indicates hand ended => w={w}")
+            debug_print("====================================\n")
             final_action = action_str
             return token, w, final_action, hole_cards, board, client_pos
 
         seat_to_act = parsed['next_to_act']
         street_name = get_street_name(parsed['street'])
-        print(f"\nStreet: {street_name}, next_to_act={seat_to_act}, action so far='{action_str}'")
+        debug_print(f"\nStreet: {street_name}, next_to_act={seat_to_act}, action so far='{action_str}'")
 
-        print(f"Hero's hole cards: {hole_cards}, Board: {board if board else 'No board'}")
+        debug_print(f"Hero's hole cards: {hole_cards}, Board: {board if board else 'No board'}")
         ai_move = ChooseActionAI(parsed, hole_cards, board, client_pos, policy_net, device=device)
         if not ai_move:
-            print("No action from hero => presumably Slumbot's turn or hand ended.")
-            print("Exiting. The hand might continue from Slumbot's perspective.")
-            print("====================================\n")
+            debug_print("No action from hero => presumably Slumbot's turn or hand ended.")
+            debug_print("Exiting. The hand might continue from Slumbot's perspective.")
+            debug_print("====================================\n")
             final_action = action_str
             return token, 0, final_action, hole_cards, board, client_pos
 
-        print(f"Hero's action => '{ai_move}'")
+        debug_print(f"Hero's action => '{ai_move}'")
         resp = Act(token, ai_move)
         new_token = resp.get('token', token)
         if new_token:
@@ -530,7 +531,7 @@ def PlayHand(token, policy_net=None, device=None):
         action_str = resp.get('action', '')
         board = resp.get('board', board)
         winnings = resp.get('winnings', None)
-        print(f"Updated action => '{action_str}', Board={board if board else 'No board'}")
+        debug_print(f"Updated action => '{action_str}', Board={board if board else 'No board'}")
 
 
 def main():
@@ -540,8 +541,8 @@ def main():
     parser.add_argument('--num_hands', type=int, default=200)
     args = parser.parse_args()
 
-    print("=========================================")
-    print(args.username, args.password)
+    debug_print("=========================================")
+    debug_print(args.username, args.password)
 
     token = None
     if args.username and args.password:
@@ -554,7 +555,7 @@ def main():
 
     total_winnings = 0
     for h in range(args.num_hands):
-        print(f"\n=== Playing hand #{h+1} ===")
+        debug_print(f"\n=== Playing hand #{h+1} ===")
         token, w, final_action, hole_cards, board, client_pos = PlayHand(token, policy_net=policy_net)
         total_winnings += (w or 0)
 
@@ -562,8 +563,8 @@ def main():
         with open("ai/replay.txt", "a") as replay_file:
             replay_file.write(f"{h+1},{final_action},{board},{hole_cards},{client_pos},{w}\n")
 
-    print(f"\nDONE. total_winnings={total_winnings}")
-    print("mBB/hand:", total_winnings / (args.num_hands * BIG_BLIND))
+    debug_print(f"\nDONE. total_winnings={total_winnings}")
+    debug_print("mBB/hand:", total_winnings / (args.num_hands * BIG_BLIND))
 
     
 

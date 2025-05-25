@@ -1,4 +1,5 @@
 from .hand import Hand
+from ai.debug_utils import debug_print
 class Player:
     def __init__(self, name, stack):
         self.name = name
@@ -8,7 +9,7 @@ class Player:
 
     def bet(self, amount):
         if amount > self.stack:
-            print("You do not have enough chips to bet that amount. Betting all in.")
+            debug_print("You do not have enough chips to bet that amount. Betting all in.")
         actual_bet = min(self.stack, amount)
         self.stack -= actual_bet
         return actual_bet

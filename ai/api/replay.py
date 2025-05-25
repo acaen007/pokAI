@@ -2,6 +2,7 @@ import sys
 import os
 from card_representation import CardRepresentation
 from action_representation import ActionRepresentation
+from debug_utils import debug_print
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -91,7 +92,7 @@ def build_replay_experiences(action_str, board, hole_cards, client_pos, winnings
             parsed_hole_cards = [parse_card(card) for card in hole_cards]
             card_rep.set_preflop(parsed_hole_cards)
         except ValueError as ve:
-            print(f"Error parsing hole cards: {ve}")
+            debug_print(f"Error parsing hole cards: {ve}")
             return [], cumulative_pot, player_contrib[hero_pos], player_contrib[villain_pos]
 
     # Split action_str by '/' to get actions per street
@@ -109,7 +110,7 @@ def build_replay_experiences(action_str, board, hole_cards, client_pos, winnings
 
     for st in range(NUM_STREETS):
         street_actions = streets[st] if st < len(streets) else ''
-        print(f"\nProcessing Street {st}: Actions='{street_actions}'")
+        debug_print(f"\nProcessing Street {st}: Actions='{street_actions}'")
 
         # Set board cards if any
         if st > 0 and st < NUM_STREETS and street_boards[st]:
@@ -124,26 +125,26 @@ def build_replay_experiences(action_str, board, hole_cards, client_pos, winnings
                     parsed_river = parse_card(street_boards[st][4])
                     card_rep.set_river(parsed_river)
             except ValueError as ve:
-                print(f"Error parsing board cards: {ve}")
+                debug_print(f"Error parsing board cards: {ve}")
                 return experiences, cumulative_pot, player_contrib[hero_pos], player_contrib[villain_pos]
 
         # Determine who acts first in this street
         if st == 0:
             # Preflop: Small Blind (seat 1) acts first
             first_actor = 1
-            print(f"First actor in Street {st}: Small blind (Seat {first_actor})")
+            debug_print(f"First actor in Street {st}: Small blind (Seat {first_actor})")
         else:
             # Postflop: Big Blind (seat 0) acts first
             first_actor = 0
-            print(f"First actor in Street {st}: Big Blind (Seat {first_actor})")
+            debug_print(f"First actor in Street {st}: Big Blind (Seat {first_actor})")
 
         pos = first_actor
 
         # Initialize current bet for the street
         current_bet = max(player_contrib.values())
-        print(f"Initial contributions: Hero (Seat {hero_pos}) = {player_contrib[hero_pos]}, "
+        debug_print(f"Initial contributions: Hero (Seat {hero_pos}) = {player_contrib[hero_pos]}, "
               f"Villain (Seat {villain_pos}) = {player_contrib[villain_pos]}")
-        print(f"Current bet: {current_bet}")
+        debug_print(f"Current bet: {current_bet}")
 
         # Parse actions in this street
         i = 0
@@ -161,7 +162,7 @@ def build_replay_experiences(action_str, board, hole_cards, client_pos, winnings
                     action = street_actions[i:j]
                     i = j
             else:
-                print(f"Unexpected character '{c}' in action string.")
+                debug_print(f"Unexpected character '{c}' in action string.")
                 i += 1
                 continue
 
@@ -182,12 +183,12 @@ def build_replay_experiences(action_str, board, hole_cards, client_pos, winnings
                 if added_amount > 0:
                     player_contrib[pos] += added_amount
                     cumulative_pot += added_amount
-                print(f"Action: 'c' by {'Hero' if pos == hero_pos else 'Villain'} (Seat {pos}) - To Call: {added_amount}")
+                debug_print(f"Action: 'c' by {'Hero' if pos == hero_pos else 'Villain'} (Seat {pos}) - To Call: {added_amount}")
             elif action.startswith('b'):
                 try:
                     bet_amount = int(action[1:])
                 except ValueError:
-                    print(f"Invalid bet amount in action '{action}'. Skipping.")
+                    debug_print(f"Invalid bet amount in action '{action}'. Skipping.")
                     continue
 
                 # Compute effective bet for preflop: subtract the blind already contributed.
@@ -220,7 +221,7 @@ def build_replay_experiences(action_str, board, hole_cards, client_pos, winnings
 
                 # Update current_bet to reflect the total contribution after the bet
                 current_bet = player_contrib[pos]
-                print(f"Action: '{action}' by {'Hero' if pos == hero_pos else 'Villain'} (Seat {pos}) - Effective Bet: {effective_bet}")
+                debug_print(f"Action: '{action}' by {'Hero' if pos == hero_pos else 'Villain'} (Seat {pos}) - Effective Bet: {effective_bet}")
             else:
                 # Default to check if action unrecognized
                 action_idx = 1
@@ -230,7 +231,7 @@ def build_replay_experiences(action_str, board, hole_cards, client_pos, winnings
             try:
                 action_index_in_round = action_rep.get_next_action_index(st)
             except ValueError as ve:
-                print(f"Error: {ve}")
+                debug_print(f"Error: {ve}")
                 continue
 
             # Always add hero's actions on row 0 and villain's on row 1
@@ -253,13 +254,13 @@ def build_replay_experiences(action_str, board, hole_cards, client_pos, winnings
                     'card_tensor': card_tensor_copy,
                     'action_tensor': action_tensor_copy,
                     'action_idx': action_idx,
-                    'deltas': (3, player_contrib[hero_pos], player_contrib[villain_pos]),
+                    'deltas': (player_contrib[hero_pos], player_contrib[villain_pos]),
                     'reward': reward
                 }
                 experiences.append(experience)
-                print(f"Recorded experience for Hero at Street {st}: Action='{action}', Action_idx={action_idx}, Reward={reward}")
+                debug_print(f"Recorded experience for Hero at Street {st}: Action='{action}', Action_idx={action_idx}, Reward={reward}")
             else:
-                print(f"Action by Villain at Street {st}: Action='{action}', Action_idx={action_idx} (No experience recorded)")
+                debug_print(f"Action by Villain at Street {st}: Action='{action}', Action_idx={action_idx} (No experience recorded)")
 
             # Switch player
             pos = 1 - pos
@@ -279,7 +280,7 @@ def build_replay_experiences(action_str, board, hole_cards, client_pos, winnings
         'reward': final_reward
     }
     experiences.append(final_experience)
-    print("Recorded final state experience.")
+    debug_print("Recorded final state experience.")
 
     return experiences, cumulative_pot, player_contrib[hero_pos], player_contrib[villain_pos]
 
@@ -354,7 +355,7 @@ def test_build_replay_experiences_suite():
     ]
     
     for idx, test in enumerate(test_cases, 1):
-        print(f"Running Test Case {idx}: {test['description']}")
+        debug_print(f"Running Test Case {idx}: {test['description']}")
         experiences, cumulative_pot, hero_contrib, villain_contrib = build_replay_experiences(
             test['action_str'],
             test['board'],
@@ -362,9 +363,9 @@ def test_build_replay_experiences_suite():
             test['client_pos']
         )
     
-        print(f"Hero Contribution: {hero_contrib}, Expected: {test['expected_hero_contrib']}")
-        print(f"Villain Contribution: {villain_contrib}, Expected: {test['expected_villain_contrib']}")
-        print(f"Cumulative Pot: {cumulative_pot}, Expected: {test['expected_cumulative_pot']}")
+        debug_print(f"Hero Contribution: {hero_contrib}, Expected: {test['expected_hero_contrib']}")
+        debug_print(f"Villain Contribution: {villain_contrib}, Expected: {test['expected_villain_contrib']}")
+        debug_print(f"Cumulative Pot: {cumulative_pot}, Expected: {test['expected_cumulative_pot']}")
     
         assert len(experiences) == test.get('expected_experiences', None) or len(experiences) == 4, \
             f"Expected {test.get('expected_experiences', 4)} experiences, got {len(experiences)}"
@@ -374,17 +375,17 @@ def test_build_replay_experiences_suite():
             f"Villain contrib mismatch: {villain_contrib} != {test['expected_villain_contrib']}"
         assert cumulative_pot == test['expected_cumulative_pot'], \
             f"Cumulative pot mismatch: {cumulative_pot} != {test['expected_cumulative_pot']}"
-        print("Test Passed.\n")
+        debug_print("Test Passed.\n")
 
         for i, exp in enumerate(experiences):
-            print(f"Experience {i}:")
-            print(f"Delta1: {exp['deltas'][0]}, Delta2: {exp['deltas'][1]}")
-            print(f"Card Tensor:\n{exp['card_tensor']}")
-            print(f"Action Tensor:\n{exp['action_tensor']}")
-            print(f"Action Index: {exp['action_idx']}")
-            print()
+            debug_print(f"Experience {i}:")
+            debug_print(f"Delta1: {exp['deltas'][0]}, Delta2: {exp['deltas'][1]}")
+            debug_print(f"Card Tensor:\n{exp['card_tensor']}")
+            debug_print(f"Action Tensor:\n{exp['action_tensor']}")
+            debug_print(f"Action Index: {exp['action_idx']}")
+            debug_print()
     
-    print("All test cases passed successfully.")
+    debug_print("All test cases passed successfully.")
     
 # test_build_replay_experiences_suite()
 

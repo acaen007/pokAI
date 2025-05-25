@@ -3,12 +3,13 @@ from ai.card_representation import CardRepresentation
 import ast
 import re
 from api.replay import build_replay_experiences
+from debug_utils import debug_print
 
 class HandResult:
     def __init__(self, card_reps: list, action_reps: list, actions_taken: list, rewards: list, deltas: list):
         # Fix the length check: compare card_reps, action_reps and rewards.
         if len(card_reps) != len(action_reps) or len(card_reps) != len(rewards):
-            print(len(card_reps), len(action_reps), len(rewards))
+            debug_print(len(card_reps), len(action_reps), len(rewards))
             raise ValueError("card_reps, rewards and action_reps must have the same length")
         # Here we assume that card_reps and action_reps already contain the numpy arrays.
         self.states = list((card_rep, action_rep) for card_rep, action_rep in zip(card_reps, action_reps))
@@ -87,7 +88,7 @@ def build_experiences_from_txt(file_path="replay.txt"):
             pattern = r'^(\d+),([^,]+),(\[.*?\]),(\[.*?\]),(\d+),(-?\d+)$'
             match = re.match(pattern, line)
             if not match:
-                print(f"Skipping line due to format mismatch: {line}")
+                debug_print(f"Skipping line due to format mismatch: {line}")
                 continue
 
             hand_index = int(match.group(1))
@@ -96,7 +97,7 @@ def build_experiences_from_txt(file_path="replay.txt"):
                 board = ast.literal_eval(match.group(3))
                 hole_cards = ast.literal_eval(match.group(4))
             except Exception as e:
-                print(f"Error parsing lists in line: {line}\n{e}")
+                debug_print(f"Error parsing lists in line: {line}\n{e}")
                 continue
             client_pos = int(match.group(5))
             winnings = int(match.group(6))

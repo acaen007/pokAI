@@ -1,16 +1,17 @@
 # game.py
 
-from deck import Deck
-from hand import Hand
-from player import Player
+from .deck import Deck
+from .hand import Hand
+from .player import Player
 # from ai.agent import PokerAI
 import numpy as np
-from hand_evaluator import (
+from .hand_evaluator import (
     evaluate_hand,
     get_hand_rank_name,
     classify_hand,
     get_all_five_card_combinations
 )
+from ai.debug_utils import debug_print
 
 class PokerGame:
     def __init__(self, player1, player2):
@@ -22,8 +23,8 @@ class PokerGame:
         self.stage = 'not_started'
         self.bets_to_match = 0
         self.previous_actions = []
-        self.small_blind = 10
-        self.big_blind = 20
+        self.small_blind = 50
+        self.big_blind = 100
         self.dealer = player1
         self.player_all_in = None  # Track if a player is all-in
         self.players_who_acted = set()  # Initialize players_who_acted
@@ -33,15 +34,16 @@ class PokerGame:
         self.ai_game_state = None  # To store the game state for AI agents
 
     def start_new_round(self):
-        print("\nStarting a new round.")
-        print("player_stacks:", [player.stack for player in self.players])
+        debug_print("\nStarting a new round.")
         self.reset_between_rounds()
-        print("Dealer:", self.dealer.name)
+
+        debug_print("player_stacks:", [player.stack for player in self.players])
+        debug_print("Dealer:", self.dealer.name)
         self.deck = Deck()
         self.deal_hole_cards()
         self.stage = 'pre_flop'
         self.post_blinds()
-        print("Betting Round: Pre-flop")
+        debug_print("Betting Round: Pre-flop")
 
     def post_blinds(self):
         small_blind_player = self.players[0] if self.dealer == self.players[0] else self.players[1]
@@ -52,14 +54,14 @@ class PokerGame:
         small_blind_player.bet(small_blind_amount)
         small_blind_player.current_bet = small_blind_amount
         self.pot += small_blind_amount
-        print(f"{small_blind_player.name} posts small blind of {small_blind_amount}.")
+        debug_print(f"{small_blind_player.name} posts small blind of {small_blind_amount}.")
 
         # Big Blind
         big_blind_amount = min(self.big_blind, big_blind_player.stack)
         big_blind_player.bet(big_blind_amount)
         big_blind_player.current_bet = big_blind_amount
         self.pot += big_blind_amount
-        print(f"{big_blind_player.name} posts big blind of {big_blind_amount}.")
+        debug_print(f"{big_blind_player.name} posts big blind of {big_blind_amount}.")
 
         # Set bets to match
         self.bets_to_match = max(small_blind_player.current_bet, big_blind_player.current_bet)
@@ -67,16 +69,15 @@ class PokerGame:
         # Check for all-in players
         if small_blind_player.stack == 0:
             self.player_all_in = small_blind_player
-            print(f"{small_blind_player.name} is all-in.")
+            debug_print(f"{small_blind_player.name} is all-in.")
         if big_blind_player.stack == 0:
             self.player_all_in = big_blind_player
-            print(f"{big_blind_player.name} is all-in.")
+            debug_print(f"{big_blind_player.name} is all-in.")
 
         # Action starts with the player after the big blind
         self.current_player_index = (self.players.index(big_blind_player) + 1) % len(self.players)
 
     def reset_between_rounds(self):
-        # Reset attributes between rounds but keep players' stacks
         self.pot = 0
         self.deck = None
         self.community_cards = []
@@ -90,11 +91,15 @@ class PokerGame:
         self.player_all_in = None
         self.players_who_acted = set()
         self.actions_in_round = 0
+        #reset stacks
+        for player in self.players:
+            player.stack = 20000
         self.winner_declared = False
         self.winner = None
         self.switch_dealers()
     
     def switch_dealers(self):
+        debug_print("Switching dealers.")
         self.dealer = self.players[0] if self.dealer == self.players[1] else self.players[1]
         #first player to act alternates between pre-flop and flop
         self.switchPlayerToAct()
@@ -108,7 +113,7 @@ class PokerGame:
         self.players_who_acted = set()
 
     def next_stage(self):
-        print("all in player " +  str(self.player_all_in))
+        debug_print("all in player " +  str(self.player_all_in))
         if self.player_all_in is not None:
             self.stage = 'river'
             while len(self.community_cards) < 5:
@@ -122,23 +127,23 @@ class PokerGame:
         if self.stage == 'pre_flop':
             self.deal_community_cards(3)  # Flop
             self.stage = 'flop'
-            print("Betting Round: Flop")
-            print("Community Cards:", self.format_cards(self.community_cards))
+            debug_print("Betting Round: Flop")
+            debug_print("Community Cards:", self.format_cards(self.community_cards))
             self.switchPlayerToAct()
-            print("Player to act:", self.players[self.current_player_index].name)
+            debug_print("Player to act:", self.players[self.current_player_index].name)
         elif self.stage == 'flop':
             self.deal_community_cards(1)  # Turn
             self.stage = 'turn'
-            print("Betting Round: Turn")
-            print("Community Cards:", self.format_cards(self.community_cards))
+            debug_print("Betting Round: Turn")
+            debug_print("Community Cards:", self.format_cards(self.community_cards))
         elif self.stage == 'turn':
             self.deal_community_cards(1)  # River
             self.stage = 'river'
-            print("Betting Round: River")
-            print("Community Cards:", self.format_cards(self.community_cards))
+            debug_print("Betting Round: River")
+            debug_print("Community Cards:", self.format_cards(self.community_cards))
         elif self.stage == 'river':
             self.stage = 'showdown'
-            print("Proceeding to Showdown")
+            debug_print("Proceeding to Showdown")
         else:
             self.stage = 'complete'
 
@@ -169,15 +174,20 @@ class PokerGame:
         bets_to_match = self.bets_to_match
         current_bet = player.current_bet
 
+        # Check if the action is valid
+        if action not in ['check', 'fold', 'call', 'bet', 'raise']:
+            debug_print(f"Invalid action: {action}")
+            return
+
         # Validate action legality
         if action == 'check' and bets_to_match > current_bet:
             # Illegal action: cannot check when there's an outstanding bet
-            print(f"{player.name} cannot check when there's an outstanding bet.")
+            debug_print(f"{player.name} cannot check when there's an outstanding bet.")
             # For simplicity, we'll treat this as a fold here
             action = 'fold'
 
         if action == 'fold':
-            print(f"{player.name} folds.")
+            debug_print(f"{player.name} folds.")
             winner = self.get_other_player(player)
             self.winner_declared = True  # Indicate that the winner has been declared
             self.winner = winner  # Store the winner
@@ -185,21 +195,21 @@ class PokerGame:
             self.end_round()
             return  # Round ends when a player folds
         elif action == 'check':
-            print(f"{player.name} checks.")
+            debug_print(f"{player.name} checks.")
         elif action == 'call':
             call_amount = self.bets_to_match - player.current_bet
             bet_amount = min(call_amount, player.stack)
             if bet_amount <= 0:
                 # Nothing to call, treat as a check
-                print(f"{player.name} checks.")
+                debug_print(f"{player.name} checks.")
             else:
                 actual_bet = player.bet(bet_amount)
                 self.pot += actual_bet
                 player.current_bet += actual_bet
-                print(f"{player.name} calls {actual_bet}.")
+                debug_print(f"{player.name} calls {actual_bet}.")
                 if player.stack == 0:
                     self.player_all_in = player
-                    print(f"{player.name} is all-in.")
+                    debug_print(f"{player.name} is all-in.")
         elif action in ['bet', 'raise']:
             total_bet = amount
             bet_amount = total_bet - player.current_bet
@@ -207,7 +217,7 @@ class PokerGame:
             other_player = self.get_other_player(player)
             bet_amount = min(min(bet_amount, player.stack), (other_player.stack+other_player.current_bet-player.current_bet))
             if bet_amount <= 0:
-                print(f"{player.name} attempts to {action} with invalid total bet amount {total_bet}.")
+                debug_print(f"{player.name} attempts to {action} with invalid total bet amount {total_bet}.")
                 bet_amount = min(self.big_blind, player.stack)
                 total_bet = player.current_bet + bet_amount
             else:
@@ -216,12 +226,12 @@ class PokerGame:
             self.pot += actual_bet
             self.bets_to_match = max(self.bets_to_match, total_bet)
             player.current_bet = total_bet
-            print(f"{player.name} {action}s to {total_bet}.")
+            debug_print(f"{player.name} {action}s to {total_bet}.")
             if player.stack == 0:
                 self.player_all_in = player
-                print(f"{player.name} is all-in.")
+                debug_print(f"{player.name} is all-in.")
         else:
-            print(f"Unknown action: {action}")
+            debug_print(f"Unknown action: {action}")
 
         action_index = self.get_action_index(action)
 
@@ -233,7 +243,11 @@ class PokerGame:
         # Record that the player has acted
         self.players_who_acted.add(player)
 
+        # Increment the action count for the current betting round
+        self.actions_in_round += 1
+
         self.current_player_index = (self.current_player_index + 1) % len(self.players)
+        debug_print(f"Next player to act: {self.players[self.current_player_index].name}")
 
     def get_action_index(self, action):
         if action == 'check':
@@ -290,19 +304,19 @@ class PokerGame:
         # Update stacks and distribute pot
         if winner:
             winner.stack += self.pot
-            print(f"{winner.name} wins the pot of {self.pot}.")
+            debug_print(f"{winner.name} wins the pot of {self.pot}.")
             # Show winner's hand
-            print(f"{winner.name}'s winning hand: {self.format_cards(winning_hand)} ({hand_rank})")
+            debug_print(f"{winner.name}'s winning hand: {self.format_cards(winning_hand)} ({hand_rank})")
         else:
             # Split the pot in case of a tie
             split_amount = self.pot // 2
             self.players[0].stack += split_amount
             self.players[1].stack += split_amount
-            print("It's a tie! Pot is split between players.")
+            debug_print("It's a tie! Pot is split between players.")
 
         # Print each player's stack
         for player in self.players:
-            print(f"{player.name} stack: {player.stack}")
+            debug_print(f"{player.name} stack: {player.stack}")
 
         # Reset the pot to zero
         self.pot = 0  # Ensure pot is reset after distributing winnings
@@ -363,15 +377,17 @@ class PokerGame:
           - All players have checked (no bets were made), or
           - A bet has been made and then called or all-in has been called.
         """
+        
         # If all players have acted at least once
         if self.actions_in_round >= len(self.players):
             # If all players have checked
             if self.bets_to_match == 0 and all(player.current_bet == 0 for player in self.players):
-                print("All players have checked. Moving to next stage.")
+                debug_print("All players have checked. Moving to next stage.")
                 return True
             # If bets are matched (including all-ins)
             elif self.players_matched_bets():
-                print("Bets are matched. Moving to next stage.")
+                debug_print("Bets are matched. Moving to next stage.")
+                debug_print("Pot is now:", self.pot)
                 return True
         return False
     

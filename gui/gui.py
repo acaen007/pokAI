@@ -33,7 +33,7 @@ def load_card_images():
                 image = pygame.transform.scale(image, (80, 100))  # Adjust the size as needed
                 card_images[card_name] = image
             else:
-                print(f"Warning: Image {image_path} not found.")
+                debug_print(f"Warning: Image {image_path} not found.")
     # Load the back of card image
     back_image_path = os.path.join(assets_path, 'back.png')
     if os.path.exists(back_image_path):
@@ -41,7 +41,7 @@ def load_card_images():
         image = pygame.transform.scale(image, (80, 100))  # Ensure consistent size
         card_images['back'] = image
     else:
-        print(f"Warning: Image {back_image_path} not found.")
+        debug_print(f"Warning: Image {back_image_path} not found.")
     return card_images
 
 
@@ -166,18 +166,18 @@ class PokerGUI:
         amount = self.game.small_blind  # Placeholder amount
         self.game.players[0].bet(amount)
         self.game.pot += amount
-        print(f"Human bets {amount}.")
+        debug_print(f"Human bets {amount}.")
 
     def call_action(self):
         # Implement call logic
         amount = self.game.current_bet - self.game.players[0].current_bet
         self.game.players[0].bet(amount)
         self.game.pot += amount
-        print(f"Human calls {amount}.")
+        debug_print(f"Human calls {amount}.")
 
     def fold_action(self):
         # Implement fold logic
-        print("Human folds.")
+        debug_print("Human folds.")
         self.game.handle_action(self.game.players[0], 'fold')
         self.human_action_made = True
 
@@ -206,7 +206,7 @@ class PokerGUI:
         # Check if buttons are clicked and handle actions
         for button_name, button_rect in self.button_rects.items():
             if button_rect.collidepoint(x, y):
-                print(f"Button {button_name} clicked.")
+                debug_print(f"Button {button_name} clicked.")
                 if button_name == 'Check':
                     self.human_action('check')
                 elif button_name == 'Bet':
@@ -223,9 +223,9 @@ class PokerGUI:
                             self.human_action('raise', amount=amount)
                             self.input_text = ''  # Clear the input
                         else:
-                            print("Raise amount must be greater than 0.")
+                            debug_print("Raise amount must be greater than 0.")
                     except ValueError:
-                        print("Invalid raise amount.")
+                        debug_print("Invalid raise amount.")
                 elif button_name == 'Next Hand':
                     # Reset game state for the next hand
 

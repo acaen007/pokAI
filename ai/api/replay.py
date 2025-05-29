@@ -272,14 +272,16 @@ def build_replay_experiences(action_str, board, hole_cards, client_pos, winnings
     
     final_reward = cumulative_pot if winnings > 0 else 0
     final_reward = cumulative_pot/2 if winnings == player_contrib[hero_pos] else final_reward  # Adjust reward if winnings are equal to hero's contribution
-    final_experience = {
-        'card_tensor': card_tensor_copy,
-        'action_tensor': action_tensor_copy,
-        'action_idx': -1,  # Marker indicating this is the final state
-        'deltas': (player_contrib[hero_pos], player_contrib[villain_pos]),
-        'reward': final_reward
-    }
-    experiences.append(final_experience)
+    
+    experiences[-1]['reward'] += final_reward  # Update the last experience with the final reward
+    # final_experience = {
+    #     'card_tensor': card_tensor_copy,
+    #     'action_tensor': action_tensor_copy,
+    #     'action_idx': -1,  # Marker indicating this is the final state
+    #     'deltas': (player_contrib[hero_pos], player_contrib[villain_pos]),
+    #     'reward': final_reward
+    # }
+    # experiences.append(final_experience)
     debug_print("Recorded final state experience.")
 
     return experiences, cumulative_pot, player_contrib[hero_pos], player_contrib[villain_pos]

@@ -32,11 +32,13 @@ class ActionAutoencoder(nn.Module):
     
     def train_encoder(self, dataloader, num_epochs=10):
         criterion = nn.MSELoss()
-        optimizer = optim.Adam(self.parameters(), lr=1e-3)
+        optimizer = optim.Adam(self.parameters(), lr=5e-3)
         for epoch in range(num_epochs):
-            for batch in dataloader:
+            for action_input in dataloader:
                 # Assume batch['action_input'] has shape (B, 24, 4, 9)
-                action_input = batch['action_input']
+                # action_input = batch['action_input']
+                action_input = action_input[0]
+                print(action_input.shape)
                 optimizer.zero_grad()
                 reconstructed = self.forward(action_input)
                 loss = criterion(reconstructed, action_input)
@@ -72,11 +74,13 @@ class CardAutoencoder(nn.Module):
     
     def train_encoder(self, dataloader, num_epochs=10):
         criterion = nn.MSELoss()
-        optimizer = optim.Adam(self.parameters(), lr=1e-3)
+        optimizer = optim.Adam(self.parameters(), lr=5e-3)
         for epoch in range(num_epochs):
-            for batch in dataloader:
+            for card_input in dataloader:
                 # Assume batch['card_input'] has shape (B, 6, 4, 13)
-                card_input = batch['card_input']
+                # card_input = batch['card_input']
+                card_input = card_input[0]
+                print(card_input.shape)
                 optimizer.zero_grad()
                 reconstructed = self.forward(card_input)
                 loss = criterion(reconstructed, card_input)
